@@ -77,5 +77,5 @@ The main open question is whether the corrected dataset and probe protocol recov
 
 ## Notes
 
-- The local paper PDF is kept separately and is not tracked in git.
+- The local paper PDF is included in this repository as `pez_paper.pdf`.
 - Generated datasets, features, and figures are not committed by default because they are large and change frequently during reruns.
