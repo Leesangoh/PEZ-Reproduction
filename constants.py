@@ -36,7 +36,7 @@ CHECKPOINT_DIR = "/mnt/md1/solee/checkpoints/vjepa2"
 # V-JEPA 2 preprocessing (ImageNet stats)
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
-VJEPA2_INPUT_SIZE = 224  # paper spec: 14x14 grid from 224/16
+VJEPA2_INPUT_SIZE = 256  # Matches local V-JEPA 2 pretrain/checkpoint family (256px)
 
 
 def get_start_positions():

@@ -1,20 +1,30 @@
-"""Step 2: Extract V-JEPA 2 layer-wise features for PEZ reproduction.
+"""Step 2: Extract Figure 2(c) features from V-JEPA v2-L.
 
-Extracts mean-pooled RAW residual-stream features from all layers of V-JEPA 2
-for the synthetic ball videos. The paper probes the residual stream, not the
-per-layer outputs after the model's final LayerNorm.
+This rewrite keeps only the pieces needed for the paper-faithful Figure 2(c)
+reproduction:
 
-Usage:
-    /isaac-sim/python.sh /home/solee/pez/step2_extract.py
+- V-JEPA v2-L only
+- 16-frame 256x256 clips
+- residual stream capture at every layer
+- mean-pooling over space-time tokens
+- two capture conventions for ablation:
+  * resid_pre  : patch_embed output + pre-block residuals
+  * resid_post : post-block residuals
+- two preprocessing branches for ablation:
+  * resize       : direct 256x256 resize
+  * eval_preproc : Resize(293) -> CenterCrop(256)
 """
 
+from __future__ import annotations
+
+import argparse
 import json
 import os
 import sys
 import time
-import argparse
 from contextlib import nullcontext
 from glob import glob
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -26,7 +36,6 @@ sys.path.insert(0, "/home/solee/pez")
 from constants import (
     CHECKPOINT_DIR,
     DATA_ROOT,
-    FEATURES_ROOT,
     IMAGENET_MEAN,
     IMAGENET_STD,
     N_FRAMES,
@@ -35,91 +44,148 @@ from constants import (
     VJEPA2_SRC,
 )
 
-# V-JEPA 2 imports
 sys.path.insert(0, VJEPA2_ROOT)
 sys.path.insert(0, VJEPA2_SRC)
 
-MODEL_CONFIGS = {
-    "large": {
-        "name": "vjepa2_L",
-        "factory": "vit_large",
-        "embed_dim": 1024,
-        "depth": 24,
-        "num_heads": 16,
-        "checkpoint": os.path.join(CHECKPOINT_DIR, "vitl.pt"),
-        "checkpoint_key": "target_encoder",
-        "batch_size": 8,
-    },
-    "giant": {
-        "name": "vjepa2_G",
-        "factory": "vit_giant_xformers",
-        "embed_dim": 1408,
-        "depth": 40,
-        "num_heads": 22,
-        "checkpoint": os.path.join(CHECKPOINT_DIR, "vitg.pt"),
-        "checkpoint_key": "target_encoder",
-        "batch_size": 4,
-    },
-}
+
+MODEL_NAME = "vjepa2_L"
+EMBED_DIM = 1024
+DEPTH = 24
+CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "vitl.pt")
 
 
-def forward_raw(self, x, masks=None):
-    """Patched forward that returns raw block outputs without final LayerNorm."""
+def forward_resid_pre(self, x, masks=None):
+    """Capture paper-style residual stream before each transformer block.
+
+    For V-JEPA v2-L this yields 24 representations:
+      layer_00 = patch_embed output (before block 0)
+      layer_01 = post-block 0 = pre-block 1
+      ...
+      layer_23 = post-block 22 = pre-block 23
+
+    This matches the paper's layer count (0..n-1) and keeps layer 0 as the
+    representation before any attention block.
+    """
     if masks is not None and not isinstance(masks, list):
         masks = [masks]
 
     if x.ndim == 4:
-        _, _, H, W = x.shape
-        T = 1
-    elif x.ndim == 5:
-        _, _, T, H, W = x.shape
-        T = T // self.tubelet_size
-    H_patches = H // self.patch_size
-    W_patches = W // self.patch_size
+        _, _, height, width = x.shape
+        tubelets = 1
+    else:
+        _, _, tubelets, height, width = x.shape
+        tubelets = tubelets // self.tubelet_size
+
+    h_patches = height // self.patch_size
+    w_patches = width // self.patch_size
     if not self.handle_nonsquare_inputs:
-        T = H_patches = W_patches = None
+        tubelets = h_patches = w_patches = None
 
     if not self.use_rope:
         pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
         x = self.patch_embed(x)
-        x += pos_embed
+        x = x + pos_embed
     else:
         x = self.patch_embed(x)
 
     if masks is not None:
         from src.masks.utils import apply_masks
+
+        x = apply_masks(x, masks)
+        masks = torch.cat(masks, dim=0)
+
+    outs = [x.clone()]
+    for block_index, block in enumerate(self.blocks[:-1]):
+        x = block(
+            x,
+            mask=masks,
+            attn_mask=None,
+            T=tubelets,
+            H_patches=h_patches,
+            W_patches=w_patches,
+        )
+        if block_index + 1 < DEPTH:
+            outs.append(x.clone())
+
+    return outs
+
+
+def forward_resid_post(self, x, masks=None):
+    """Capture residual stream after every transformer block."""
+    if masks is not None and not isinstance(masks, list):
+        masks = [masks]
+
+    if x.ndim == 4:
+        _, _, height, width = x.shape
+        tubelets = 1
+    else:
+        _, _, tubelets, height, width = x.shape
+        tubelets = tubelets // self.tubelet_size
+
+    h_patches = height // self.patch_size
+    w_patches = width // self.patch_size
+    if not self.handle_nonsquare_inputs:
+        tubelets = h_patches = w_patches = None
+
+    if not self.use_rope:
+        pos_embed = self.interpolate_pos_encoding(x, self.pos_embed)
+        x = self.patch_embed(x)
+        x = x + pos_embed
+    else:
+        x = self.patch_embed(x)
+
+    if masks is not None:
+        from src.masks.utils import apply_masks
+
         x = apply_masks(x, masks)
         masks = torch.cat(masks, dim=0)
 
     outs = []
-    for i, blk in enumerate(self.blocks):
-        x = blk(x, mask=masks, attn_mask=None, T=T, H_patches=H_patches, W_patches=W_patches)
-        if self.out_layers is not None and i in self.out_layers:
-            outs.append(x.clone())
+    for block in self.blocks:
+        x = block(
+            x,
+            mask=masks,
+            attn_mask=None,
+            T=tubelets,
+            H_patches=h_patches,
+            W_patches=w_patches,
+        )
+        outs.append(x.clone())
 
-    if self.out_layers is not None:
-        return outs
-
-    if self.norm is not None:
-        x = self.norm(x)
-    return x
+    return outs
 
 
-def load_model(model_size, device):
-    """Load V-JEPA 2 model and patch it to emit raw residual stream outputs."""
+def build_transform(transform_name: str):
+    if transform_name == "resize":
+        spatial = transforms.Resize((VJEPA2_INPUT_SIZE, VJEPA2_INPUT_SIZE), antialias=True)
+    elif transform_name == "eval_preproc":
+        spatial = transforms.Compose(
+            [
+                transforms.Resize(293, antialias=True),
+                transforms.CenterCrop((VJEPA2_INPUT_SIZE, VJEPA2_INPUT_SIZE)),
+            ]
+        )
+    else:
+        raise ValueError(f"Unknown transform: {transform_name}")
+
+    return transforms.Compose(
+        [
+            spatial,
+            transforms.ConvertImageDtype(torch.float32),
+            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+        ]
+    )
+
+
+def load_model(device: str, capture: str):
     import models.vision_transformer as vit_module
 
-    cfg = MODEL_CONFIGS[model_size]
-    n_layers = cfg["depth"]
-    out_layers = list(range(n_layers))
-
-    factory_fn = getattr(vit_module, cfg["factory"])
-    model = factory_fn(
+    model = vit_module.vit_large(
         patch_size=16,
         img_size=(VJEPA2_INPUT_SIZE, VJEPA2_INPUT_SIZE),
         num_frames=64,
         tubelet_size=2,
-        out_layers=out_layers,
+        out_layers=list(range(DEPTH)),
         use_sdpa=True,
         use_silu=False,
         wide_silu=True,
@@ -127,225 +193,118 @@ def load_model(model_size, device):
         use_rope=True,
     )
 
-    # Load checkpoint
-    state_dict = torch.load(cfg["checkpoint"], map_location="cpu", weights_only=True)
-    ckpt_key = cfg["checkpoint_key"]
-    if ckpt_key in state_dict:
-        state_dict = state_dict[ckpt_key]
-    elif "model" in state_dict:
-        state_dict = state_dict["model"]
+    checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=True)
+    state = checkpoint.get("target_encoder", checkpoint)
+    cleaned = {
+        key.replace("module.", "").replace("backbone.", ""): value
+        for key, value in state.items()
+    }
+    model.load_state_dict(cleaned, strict=True)
 
-    cleaned = {}
-    for k, v in state_dict.items():
-        k = k.replace("module.", "").replace("backbone.", "")
-        cleaned[k] = v
+    if capture == "resid_pre":
+        model.__class__.forward = forward_resid_pre
+    elif capture == "resid_post":
+        model.__class__.forward = forward_resid_post
+    else:
+        raise ValueError(f"Unknown capture: {capture}")
 
-    msg = model.load_state_dict(cleaned, strict=False)
-    if msg.unexpected_keys:
-        print(f"  Unexpected keys: {msg.unexpected_keys[:5]}...")
-    if msg.missing_keys:
-        print(f"  Missing keys: {msg.missing_keys[:5]}...")
-
-    model.__class__.forward = forward_raw
-    model = model.to(device).eval()
-    print(f"Loaded V-JEPA 2 {model_size}: embed_dim={cfg['embed_dim']}, "
-          f"depth={n_layers}, img_size={VJEPA2_INPUT_SIZE}, out_layers=[0..{n_layers-1}], "
-          f"raw_residual=True")
-    return model, cfg
+    return model.to(device).eval()
 
 
-def get_transform():
-    """Preprocessing pipeline: resize to 224, normalize with ImageNet stats."""
-    return transforms.Compose([
-        transforms.Resize((VJEPA2_INPUT_SIZE, VJEPA2_INPUT_SIZE), antialias=True),
-        transforms.ConvertImageDtype(torch.float32),
-        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
-    ])
+def list_video_dirs(dataset_name: str):
+    base = os.path.join(DATA_ROOT, dataset_name, "videos")
+    return sorted(path for path in glob(os.path.join(base, "*")) if os.path.isdir(path))
 
 
-def load_video_frames(video_dir, transform):
-    """Load 16 PNG frames, apply transform, return (16, 3, 224, 224)."""
+def load_clip(video_dir: str, transform):
     frames = []
-    for i in range(N_FRAMES):
-        path = os.path.join(video_dir, f"frame_{i:02d}.png")
-        img = cv2.imread(path)
-        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        tensor = torch.from_numpy(img_rgb).permute(2, 0, 1)  # (3, H, W) uint8
-        tensor = transform(tensor)  # (3, 224, 224) float32 normalized
-        frames.append(tensor)
-    return torch.stack(frames)  # (16, 3, 224, 224)
+    for frame_idx in range(N_FRAMES):
+        path = os.path.join(video_dir, f"frame_{frame_idx:02d}.png")
+        image_bgr = cv2.imread(path, cv2.IMREAD_COLOR)
+        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+        tensor = torch.from_numpy(image_rgb).permute(2, 0, 1)
+        frames.append(transform(tensor))
+    return torch.stack(frames).permute(1, 0, 2, 3)
 
 
-def extract_features(model, video_dirs, transform, n_layers, embed_dim, batch_size, device):
-    """Extract mean-pooled features for all videos from all layers."""
-    n_videos = len(video_dirs)
-    all_features = [np.zeros((n_videos, embed_dim), dtype=np.float32) for _ in range(n_layers)]
+def extract_dataset(model, video_dirs, transform, batch_size: int, device: str):
+    features = [np.zeros((len(video_dirs), EMBED_DIM), dtype=np.float32) for _ in range(DEPTH)]
 
-    token_shape_checked = False
+    for start in tqdm(range(0, len(video_dirs), batch_size), desc="extract"):
+        end = min(start + batch_size, len(video_dirs))
+        batch = torch.stack(
+            [load_clip(video_dirs[index], transform) for index in range(start, end)]
+        ).to(device)
 
-    for batch_start in tqdm(range(0, n_videos, batch_size), desc="  Extracting"):
-        batch_end = min(batch_start + batch_size, n_videos)
-        batch_clips = []
+        autocast = torch.amp.autocast("cuda") if device.startswith("cuda") else nullcontext()
+        with torch.no_grad(), autocast:
+            outputs = model(batch)
 
-        for vid_idx in range(batch_start, batch_end):
-            frames = load_video_frames(video_dirs[vid_idx], transform)
-            clip = frames.permute(1, 0, 2, 3)  # (3, 16, 224, 224)
-            batch_clips.append(clip)
+        for layer_index, layer_tokens in enumerate(outputs):
+            pooled = layer_tokens.mean(dim=1).float().cpu().numpy()
+            features[layer_index][start:end] = pooled
 
-        batch = torch.stack(batch_clips).to(device)  # (B, 3, 16, 224, 224)
-
-        autocast_ctx = torch.amp.autocast("cuda") if device.startswith("cuda") else nullcontext()
-        with torch.no_grad(), autocast_ctx:
-            outputs = model(batch)  # list of n_layers tensors, each (B, tokens, D)
-
-        # Verify token count on first batch
-        if not token_shape_checked:
-            token_shape = outputs[0].shape
-            expected_tokens = 8 * 196  # 8 temporal * 196 spatial = 1568
-            print(f"  Token shape: {token_shape} (expected B x {expected_tokens} x {embed_dim})")
-            assert token_shape[1] == expected_tokens, (
-                f"Token count mismatch: got {token_shape[1]}, expected {expected_tokens}. "
-                f"Check input resolution (should be 224x224)."
-            )
-            token_shape_checked = True
-
-        # Mean-pool and store
-        for layer_idx, layer_out in enumerate(outputs):
-            pooled = layer_out.mean(dim=1).float().cpu().numpy()  # (B, D)
-            all_features[layer_idx][batch_start:batch_end] = pooled
-
-    return all_features
+    return features
 
 
-def sanity_checks(features_dir, model_name, n_layers, embed_dim, dataset_name, n_videos):
-    """Verify extracted features."""
-    print(f"\n  Sanity checks for {model_name}/{dataset_name}:")
+def save_branch(output_root: str, dataset_name: str, features):
+    dataset_root = Path(output_root) / MODEL_NAME / dataset_name
+    dataset_root.mkdir(parents=True, exist_ok=True)
+    for layer_index, array in enumerate(features):
+        np.save(dataset_root / f"layer_{layer_index:02d}.npy", array)
 
-    # Shape check
-    for l in range(n_layers):
-        path = os.path.join(features_dir, f"layer_{l:02d}.npy")
-        feat = np.load(path)
-        assert feat.shape == (n_videos, embed_dim), \
-            f"Layer {l}: expected ({n_videos}, {embed_dim}), got {feat.shape}"
 
-    # NaN/Inf check
-    has_nan = False
-    for l in range(n_layers):
-        feat = np.load(os.path.join(features_dir, f"layer_{l:02d}.npy"))
-        if np.isnan(feat).any() or np.isinf(feat).any():
-            print(f"  WARNING: Layer {l} has NaN/Inf!")
-            has_nan = True
-    if not has_nan:
-        print(f"  [OK] No NaN/Inf in any layer")
-
-    # Norm check
-    norms = []
-    for l in range(n_layers):
-        feat = np.load(os.path.join(features_dir, f"layer_{l:02d}.npy"))
-        norms.append(np.linalg.norm(feat, axis=1).mean())
-    print(f"  [OK] Feature norms range: {min(norms):.2f} - {max(norms):.2f}")
-
-    # Inter-layer cosine similarity (sample)
-    layers_to_check = [0, n_layers // 4, n_layers // 2, 3 * n_layers // 4, n_layers - 1]
-    feats = {}
-    for l in layers_to_check:
-        f = np.load(os.path.join(features_dir, f"layer_{l:02d}.npy"))
-        feats[l] = f.mean(axis=0)  # mean across videos
-        feats[l] = feats[l] / (np.linalg.norm(feats[l]) + 1e-8)
-
-    print(f"  Cosine similarities (mean feature vectors):")
-    for i, l1 in enumerate(layers_to_check):
-        for l2 in layers_to_check[i + 1:]:
-            sim = np.dot(feats[l1], feats[l2])
-            print(f"    Layer {l1} vs {l2}: {sim:.4f}")
+def default_output_root(capture: str, transform_name: str):
+    return os.path.join("/home/solee/pez/artifacts/features", f"{capture}_{transform_name}")
 
 
 def main():
-    print("=" * 60)
-    print("PEZ Step 2: V-JEPA 2 Feature Extraction")
-    print("=" * 60)
-
     parser = argparse.ArgumentParser()
-    parser.add_argument("--models", nargs="+", choices=list(MODEL_CONFIGS.keys()), default=list(MODEL_CONFIGS.keys()))
+    parser.add_argument("--capture", choices=["resid_pre", "resid_post"], default="resid_pre")
+    parser.add_argument("--transform", choices=["resize", "eval_preproc"], default="resize")
+    parser.add_argument("--output-root", default=None)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--reuse-existing", action="store_true")
     args = parser.parse_args()
 
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    transform = get_transform()
+    output_root = args.output_root or default_output_root(args.capture, args.transform)
+    Path(output_root).mkdir(parents=True, exist_ok=True)
 
-    # Collect video directories for each dataset
-    datasets = {}
-    for dataset_name in ["velocity", "acceleration"]:
-        video_base = os.path.join(DATA_ROOT, dataset_name, "videos")
-        video_dirs = sorted(glob(os.path.join(video_base, "*")))
-        video_dirs = [d for d in video_dirs if os.path.isdir(d)]
-        datasets[dataset_name] = video_dirs
-        print(f"{dataset_name}: {len(video_dirs)} videos")
+    metadata_path = Path(output_root) / "extraction_metadata.json"
+    if args.reuse_existing and metadata_path.exists():
+        print(f"Reusing existing extraction at {output_root}")
+        return
 
-    assert len(datasets["velocity"]) == 392, f"Expected 392, got {len(datasets['velocity'])}"
-    assert len(datasets["acceleration"]) == 280, f"Expected 280, got {len(datasets['acceleration'])}"
+    transform = build_transform(args.transform)
+    model = load_model(args.device, args.capture)
 
-    extraction_config = {
+    start_time = time.time()
+    for dataset_name in ("velocity", "acceleration"):
+        print(f"[{dataset_name}] capture={args.capture} transform={args.transform}")
+        video_dirs = list_video_dirs(dataset_name)
+        features = extract_dataset(
+            model=model,
+            video_dirs=video_dirs,
+            transform=transform,
+            batch_size=args.batch_size,
+            device=args.device,
+        )
+        save_branch(output_root, dataset_name, features)
+
+    metadata = {
+        "model": MODEL_NAME,
+        "capture": args.capture,
+        "transform": args.transform,
         "input_size": VJEPA2_INPUT_SIZE,
+        "n_layers": DEPTH,
+        "embed_dim": EMBED_DIM,
         "n_frames": N_FRAMES,
-        "normalization": {"mean": IMAGENET_MEAN, "std": IMAGENET_STD},
-        "pooling": "spatiotemporal_mean",
-        "feature_source": "raw_residual_stream",
-        "expected_tokens": 1568,
-        "models": {},
+        "checkpoint": CHECKPOINT_PATH,
+        "elapsed_sec": time.time() - start_time,
     }
-
-    for model_size in args.models:
-        cfg = MODEL_CONFIGS[model_size]
-        model_name = cfg["name"]
-        n_layers = cfg["depth"]
-        embed_dim = cfg["embed_dim"]
-        batch_size = cfg["batch_size"]
-
-        print(f"\n{'='*40}")
-        print(f"Model: {model_name} ({model_size})")
-        print(f"{'='*40}")
-
-        model, _ = load_model(model_size, device)
-        start_time = time.time()
-
-        for dataset_name, video_dirs in datasets.items():
-            n_videos = len(video_dirs)
-            out_dir = os.path.join(FEATURES_ROOT, model_name, dataset_name)
-            os.makedirs(out_dir, exist_ok=True)
-
-            print(f"\n  Dataset: {dataset_name} ({n_videos} videos, batch_size={batch_size})")
-            features = extract_features(
-                model, video_dirs, transform, n_layers, embed_dim, batch_size, device
-            )
-
-            # Save per-layer .npy files
-            for l in range(n_layers):
-                np.save(os.path.join(out_dir, f"layer_{l:02d}.npy"), features[l])
-
-            # Sanity checks
-            sanity_checks(out_dir, model_name, n_layers, embed_dim, dataset_name, n_videos)
-
-        elapsed = time.time() - start_time
-        print(f"\n  {model_name} total time: {elapsed:.1f}s")
-
-        extraction_config["models"][model_name] = {
-            "model_size": model_size,
-            "depth": n_layers,
-            "embed_dim": embed_dim,
-            "checkpoint": cfg["checkpoint"],
-            "batch_size": batch_size,
-        }
-
-        # Free GPU memory before loading next model
-        del model
-        torch.cuda.empty_cache()
-
-    # Save config
-    with open(os.path.join(FEATURES_ROOT, "extraction_config.json"), "w") as f:
-        json.dump(extraction_config, f, indent=2)
-
-    print("\nStep 2 complete!")
-    print(f"Output: {FEATURES_ROOT}/")
+    metadata_path.write_text(json.dumps(metadata, indent=2))
+    print(json.dumps(metadata, indent=2))
 
 
 if __name__ == "__main__":
