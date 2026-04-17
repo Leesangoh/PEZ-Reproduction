@@ -239,6 +239,168 @@ def fit_trainable_probe(X_train, y_train, X_val, y_val, output_dim, lr, weight_d
     return compute_r2(y_val, pred_val)
 
 
+def fit_trainable_probe_batched(
+    X_train, y_train, X_val, y_val, output_dim,
+    lr_grid, wd_grid, device,
+    max_epochs=TRAINABLE_MAX_EPOCHS, patience_limit=TRAINABLE_PATIENCE,
+):
+    """Fit ALL (lr, wd) configs simultaneously as a batched linear layer.
+
+    Mathematically equivalent to calling fit_trainable_probe() once per config,
+    but ~20x faster because a single forward/backward pass updates all configs
+    in parallel (each config has its own weight slice + its own Adam state +
+    its own LR/WD).
+
+    Returns:
+        List[Tuple[float, float, float]]: (lr, wd, val_r2) for each config
+        in the same order as itertools.product(lr_grid, wd_grid).
+    """
+    import itertools
+
+    configs = list(itertools.product(lr_grid, wd_grid))
+    n_configs = len(configs)
+
+    # --- Preprocess (same standardization as single version) ---
+    X_train = np.asarray(X_train, dtype=np.float32)
+    X_val = np.asarray(X_val, dtype=np.float32)
+    y_train = np.asarray(y_train, dtype=np.float32)
+    y_val = np.asarray(y_val, dtype=np.float32)
+
+    if y_train.ndim == 1:
+        y_train = y_train[:, None]
+        y_val = y_val[:, None]
+
+    x_mean = X_train.mean(axis=0, keepdims=True)
+    x_std = X_train.std(axis=0, keepdims=True)
+    x_std[x_std < 1e-6] = 1.0
+    X_train_std = (X_train - x_mean) / x_std
+    X_val_std = (X_val - x_mean) / x_std
+
+    y_mean = y_train.mean(axis=0, keepdims=True)
+    y_std = y_train.std(axis=0, keepdims=True)
+    y_std[y_std < 1e-6] = 1.0
+    y_train_std = (y_train - y_mean) / y_std
+    y_val_std = (y_val - y_mean) / y_std
+
+    X_tr = torch.tensor(X_train_std, dtype=torch.float32, device=device)
+    X_va = torch.tensor(X_val_std, dtype=torch.float32, device=device)
+    y_tr = torch.tensor(y_train_std, dtype=torch.float32, device=device)
+    y_va = torch.tensor(y_val_std, dtype=torch.float32, device=device)
+
+    D = X_tr.shape[1]
+    O = output_dim
+
+    # --- Init all configs with identical weights (match single version) ---
+    # Single fit_trainable_probe calls torch.manual_seed(CV_RANDOM_SEED) then
+    # creates nn.Linear(D, O), so every config starts from the same (W, b).
+    torch.manual_seed(CV_RANDOM_SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(CV_RANDOM_SEED)
+    template = torch.nn.Linear(D, O, bias=True)
+    # nn.Linear weight shape: (O, D). We want W of shape (n_configs, D, O)
+    W_init = template.weight.data.T.contiguous()  # (D, O)
+    b_init = template.bias.data.clone()           # (O,)
+
+    W = W_init.unsqueeze(0).expand(n_configs, D, O).contiguous().to(device)
+    b = b_init.unsqueeze(0).expand(n_configs, O).contiguous().to(device)
+    W.requires_grad_(True)
+    b.requires_grad_(True)
+
+    # --- Per-config Adam state ---
+    m_W = torch.zeros_like(W)
+    v_W = torch.zeros_like(W)
+    m_b = torch.zeros_like(b)
+    v_b = torch.zeros_like(b)
+    beta1, beta2, eps = 0.9, 0.999, 1e-8
+
+    lrs = torch.tensor([c[0] for c in configs], dtype=torch.float32, device=device)  # (C,)
+    wds = torch.tensor([c[1] for c in configs], dtype=torch.float32, device=device)  # (C,)
+
+    # --- Per-config early-stopping state ---
+    best_val_loss = torch.full((n_configs,), float("inf"), device=device)
+    best_W = W.detach().clone()
+    best_b = b.detach().clone()
+    patience = torch.zeros(n_configs, dtype=torch.int32, device=device)
+    active = torch.ones(n_configs, dtype=torch.bool, device=device)
+
+    for step in range(1, max_epochs + 1):
+        # Forward (all configs in parallel): (N, D) x (C, D, O) -> (C, N, O)
+        pred_tr = torch.einsum("nd,cdo->cno", X_tr, W) + b.unsqueeze(1)
+        # Per-config MSE
+        loss_per_cfg = ((pred_tr - y_tr.unsqueeze(0)) ** 2).mean(dim=(1, 2))  # (C,)
+
+        # Sum ONLY active configs (inactive get zero grad contribution)
+        total_loss = (loss_per_cfg * active.float()).sum()
+        total_loss.backward()
+
+        with torch.no_grad():
+            # Adam update with per-config LR + coupled L2 weight decay on W AND b.
+            # Matches torch.optim.Adam(weight_decay=wd) which applies WD to every
+            # parameter (weight_decay * param added to gradient before Adam step).
+            W.grad.add_(W * wds[:, None, None])
+            b.grad.add_(b * wds[:, None])
+
+            # Adam step (per-config)
+            m_W.mul_(beta1).add_(W.grad, alpha=1 - beta1)
+            v_W.mul_(beta2).addcmul_(W.grad, W.grad, value=1 - beta2)
+            m_b.mul_(beta1).add_(b.grad, alpha=1 - beta1)
+            v_b.mul_(beta2).addcmul_(b.grad, b.grad, value=1 - beta2)
+
+            bc1 = 1 - beta1 ** step
+            bc2 = 1 - beta2 ** step
+            m_W_hat = m_W / bc1
+            v_W_hat = v_W / bc2
+            m_b_hat = m_b / bc1
+            v_b_hat = v_b / bc2
+
+            active_mask_W = active.float()[:, None, None]
+            active_mask_b = active.float()[:, None]
+
+            W.data.sub_(active_mask_W * lrs[:, None, None] * m_W_hat / (v_W_hat.sqrt() + eps))
+            b.data.sub_(active_mask_b * lrs[:, None] * m_b_hat / (v_b_hat.sqrt() + eps))
+
+            W.grad.zero_()
+            b.grad.zero_()
+
+        # Val loss per config
+        with torch.no_grad():
+            pred_va = torch.einsum("nd,cdo->cno", X_va, W) + b.unsqueeze(1)
+            val_loss_per_cfg = ((pred_va - y_va.unsqueeze(0)) ** 2).mean(dim=(1, 2))
+
+            improved = val_loss_per_cfg + 1e-8 < best_val_loss
+            best_val_loss = torch.where(improved, val_loss_per_cfg, best_val_loss)
+            best_W = torch.where(
+                improved[:, None, None].expand_as(W), W.detach(), best_W
+            )
+            best_b = torch.where(
+                improved[:, None].expand_as(b), b.detach(), best_b
+            )
+
+            patience = torch.where(
+                improved, torch.zeros_like(patience), patience + 1
+            )
+            active = active & (patience < patience_limit)
+            if not active.any():
+                break
+
+    # --- Final val R² per config using best_W, best_b ---
+    with torch.no_grad():
+        pred_va_best = torch.einsum("nd,cdo->cno", X_va, best_W) + best_b.unsqueeze(1)
+    pred_va_best_np = pred_va_best.cpu().numpy()  # (C, N_val, O)
+
+    # Un-standardize predictions back to raw target space
+    pred_va_unscaled = pred_va_best_np * y_std[None, :, :] + y_mean[None, :, :]
+    y_val_raw = y_val  # (N_val, O) original scale
+
+    results = []
+    ss_tot = np.square(y_val_raw - y_val_raw.mean(axis=0, keepdims=True)).sum()
+    for i, (lr_val, wd_val) in enumerate(configs):
+        ss_res = np.square(pred_va_unscaled[i] - y_val_raw).sum()
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 0.0
+        results.append((float(lr_val), float(wd_val), float(r2)))
+    return results
+
+
 def evaluate_layer(features, targets, groups, output_dim, solver, device):
     """Evaluate one layer using Appendix B grouped 5-fold cross-validation."""
 
@@ -248,6 +410,24 @@ def evaluate_layer(features, targets, groups, output_dim, solver, device):
     fold_best_wds = []
 
     for train_idx, val_idx in cv.split(features, targets, groups):
+        if solver == "trainable":
+            # Batched: all 20 HP configs in one go (~20x faster)
+            cfg_results = fit_trainable_probe_batched(
+                features[train_idx], targets[train_idx],
+                features[val_idx], targets[val_idx],
+                output_dim=output_dim,
+                lr_grid=APPENDIX_B_LR_GRID,
+                wd_grid=APPENDIX_B_WD_GRID,
+                device=device,
+            )
+            # Pick best config by val R²
+            best_lr, best_wd, best_score = max(cfg_results, key=lambda r: r[2])
+            fold_scores.append(best_score)
+            fold_best_lrs.append(best_lr)
+            fold_best_wds.append(best_wd)
+            continue
+
+        # --- Legacy path (ridge, trainable_unbatched) ---
         best_score = -np.inf
         best_lr = None
         best_wd = None
@@ -260,7 +440,7 @@ def evaluate_layer(features, targets, groups, output_dim, solver, device):
                         features[val_idx], targets[val_idx],
                         alpha=weight_decay,
                     )
-                elif solver == "trainable":
+                elif solver == "trainable_unbatched":
                     score = fit_trainable_probe(
                         features[train_idx], targets[train_idx],
                         features[val_idx], targets[val_idx],
@@ -563,7 +743,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", nargs="+", choices=list(MODEL_CONFIGS.keys()), default=list(MODEL_CONFIGS.keys()))
     parser.add_argument("--probe-set", choices=list(PROBE_SETS.keys()), default="polar")
-    parser.add_argument("--solver", choices=["ridge", "trainable"], default="trainable")
+    parser.add_argument(
+        "--solver",
+        choices=["ridge", "trainable", "trainable_unbatched"],
+        default="trainable",
+        help=(
+            "ridge: closed-form L2 regression. "
+            "trainable: Adam-trained linear probe with all 20 HP configs batched "
+            "into a single parallel forward/backward (fast, default). "
+            "trainable_unbatched: legacy per-config loop (slow, for verification)."
+        ),
+    )
     parser.add_argument("--grouping", choices=["position", "condition"], default="condition")
     args = parser.parse_args()
 
