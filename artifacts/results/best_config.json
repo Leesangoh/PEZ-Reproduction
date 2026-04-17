@@ -1,0 +1,14 @@
+{
+  "run_name": "ablate_direction_target_angle_gpu",
+  "grouping": "position",
+  "direction_target": "angle",
+  "residual_capture": "resid_pre",
+  "preprocessing": "resize",
+  "l0_direction_r2": 0.0596698666692862,
+  "l1_l6_direction_mean": 0.7268505278884839,
+  "direction_first_ge_0p8_layer": 6.0,
+  "peak_direction_r2": 0.9748175014623508,
+  "peak_layer_index": 15,
+  "paper_distance": 10.025199861234915,
+  "paper_like_rank": 1
+}

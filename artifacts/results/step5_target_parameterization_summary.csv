@@ -1,0 +1,4 @@
+run_name,direction_target,l0_direction_r2,l1_l6_direction_mean,direction_first_ge_0p8_layer,peak_direction_r2,peak_layer_index
+step3_spatial_sector_angle,angle,-0.0043440171188976,0.7072229506663095,8,0.9701523737788438,12
+step3_spatial_sector_sincos,sincos,-0.0576936089496368,0.8663820517376418,2,0.993328155069776,16
+step5_spatial_sector_vxy,vxy,0.0716976000107135,0.8018811546761726,3,0.9863848559589872,12

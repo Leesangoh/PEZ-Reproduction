@@ -1,0 +1,24 @@
+{
+  "run_name": "step3_pixel_region_sincos",
+  "feature_root": "/home/solee/pez/artifacts/features/resid_pre_resize",
+  "grouping": "pixel_region",
+  "direction_target": "sincos",
+  "residual_capture": "resid_pre",
+  "preprocessing": "resize",
+  "cv_splits": 5,
+  "model": "vjepa2_L",
+  "n_layers": 24,
+  "lr_grid": [
+    0.0001,
+    0.0003,
+    0.001,
+    0.003,
+    0.005
+  ],
+  "wd_grid": [
+    0.01,
+    0.1,
+    0.4,
+    0.8
+  ]
+}

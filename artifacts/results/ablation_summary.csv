@@ -1,0 +1,8 @@
+run_name,grouping,direction_target,residual_capture,preprocessing,l0_direction_r2,l1_l6_direction_mean,direction_first_ge_0p8_layer,peak_direction_r2,peak_layer_index,paper_distance,paper_like_rank
+ablate_direction_target_angle_gpu,position,angle,resid_pre,resize,0.0596698666692862,0.7268505278884839,6.0,0.9748175014623508,15,10.025199861234915,1
+base_pre_resize_position_sincos_gpu,position,sincos,resid_pre,resize,0.0386140641025133,0.8846337446713909,2.0,0.9952771292122554,16,15.077704065183957,2
+ablate_preproc_eval_gpu,position,sincos,resid_pre,eval_preproc,0.1548684362176192,0.9093004500369446,2.0,0.995307431487705,16,15.683642631125041,3
+ablate_group_condition_gpu,condition,sincos,resid_pre,resize,0.025175975408629,0.8687703930446479,2.0,0.9941834158948362,23,21.994650270087792,4
+ablate_group_video_gpu,video,sincos,resid_pre,resize,0.0577003721409801,0.8825550087080246,2.0,0.9954574314745273,23,22.171056869412926,5
+ablate_residual_capture_post_gpu,position,sincos,resid_post,resize,0.691492859221,0.9355646835616938,1.0,0.9958323074650494,21,24.393028979666695,6
+ablate_group_direction_gpu,direction,sincos,resid_pre,resize,-0.1611622532581652,0.46058211015920003,inf,0.5833162001431191,11,995.26639337645,7

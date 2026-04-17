@@ -1,0 +1,25 @@
+{
+  "run_name": "step6_spatial_sector_angle_adamw100",
+  "feature_root": "/home/solee/pez/artifacts/features/resid_pre_resize",
+  "grouping": "spatial_sector",
+  "direction_target": "angle",
+  "residual_capture": "resid_pre",
+  "preprocessing": "resize",
+  "solver": "adamw100",
+  "cv_splits": 5,
+  "model": "vjepa2_L",
+  "n_layers": 24,
+  "lr_grid": [
+    0.0001,
+    0.0003,
+    0.001,
+    0.003,
+    0.005
+  ],
+  "wd_grid": [
+    0.01,
+    0.1,
+    0.4,
+    0.8
+  ]
+}

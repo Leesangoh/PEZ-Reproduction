@@ -1,0 +1,4 @@
+run_name,solver,l0_direction_r2,l1_l6_direction_mean,direction_first_ge_0p8_layer,peak_direction_r2,peak_layer_index
+step3_spatial_sector_angle,trainable,-0.0043440171188976,0.7072229506663095,8,0.9701523737788438,12
+step6_spatial_sector_angle_adamw100,adamw100,-0.0215976417476632,0.6183329595788146,9,0.950505055767335,13
+step6_spatial_sector_angle_ridge,ridge,0.0134980227437588,0.7045274632516069,8,0.9701119095747334,14

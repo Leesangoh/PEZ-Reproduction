@@ -1,0 +1,17 @@
+{
+  "local_curve_peak_layer": 12,
+  "local_curve_layer_0": -16.969787549972533,
+  "local_curve_layer_7": 0.3725625514984131,
+  "local_curve_layer_8": 0.37064898014068604,
+  "transfer_peak_layer": 12,
+  "transfer_layer_0": -11.968150579929352,
+  "transfer_layer_7": -0.30462500751018523,
+  "transfer_layer_8": -0.32524143159389496,
+  "selected_layers": [
+    0,
+    7,
+    8,
+    15
+  ],
+  "ridge_alpha": 1.0
+}

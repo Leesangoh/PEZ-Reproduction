@@ -1,0 +1,3 @@
+label,run_name,residual_capture,l0_direction_r2,l1_l6_direction_mean,direction_first_ge_0p8_layer,peak_direction_r2,peak_layer_index
+resid_pre_current,step3_spatial_sector_angle,resid_pre,-0.0043440171188976,0.7072229506663095,8,0.9701523737788438,12
+resid_post_strict,step7_spatial_sector_angle_resid_post,resid_post,0.6127363463654113,0.734248419545489,7,0.9701523737788438,11
