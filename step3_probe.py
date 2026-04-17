@@ -82,11 +82,29 @@ def extract_condition_groups(video_ids):
     return pd.factorize(np.asarray(groups), sort=True)[0].astype(np.int64)
 
 
+def extract_direction_groups(video_ids):
+    """Group videos by direction index only.
+
+    Used for leave-one-direction-out CV: with 8 directions, 8-fold GroupKFold
+    puts every video of one angle entirely into the val fold so the probe
+    cannot memorize the angles it has seen during training.
+    """
+    groups = []
+    for video_id in video_ids:
+        match = re.search(r"_dir(\d+)_", video_id)
+        if match is None:
+            raise ValueError(f"Cannot extract direction from video_id: {video_id}")
+        groups.append(int(match.group(1)))
+    return np.asarray(groups, dtype=np.int64)
+
+
 def extract_groups(video_ids, grouping):
     if grouping == "position":
         return extract_position_groups(video_ids)
     if grouping == "condition":
         return extract_condition_groups(video_ids)
+    if grouping == "direction":
+        return extract_direction_groups(video_ids)
     raise ValueError(f"Unknown grouping: {grouping}")
 
 
@@ -416,10 +434,16 @@ def fit_trainable_probe_batched(
     return results
 
 
-def evaluate_layer(features, targets, groups, output_dim, solver, device):
-    """Evaluate one layer using Appendix B grouped 5-fold cross-validation."""
+def evaluate_layer(features, targets, groups, output_dim, solver, device,
+                   cv_n_splits=None):
+    """Evaluate one layer using Appendix B grouped k-fold cross-validation."""
 
-    cv = GroupKFold(n_splits=CV_N_SPLITS)
+    n_splits = cv_n_splits if cv_n_splits is not None else CV_N_SPLITS
+    n_unique = int(np.unique(groups).size)
+    if n_splits > n_unique:
+        # GroupKFold requires n_splits <= #groups. Clamp silently for LOO.
+        n_splits = n_unique
+    cv = GroupKFold(n_splits=n_splits)
     fold_scores = []
     fold_best_lrs = []
     fold_best_wds = []
@@ -516,7 +540,7 @@ def evaluate_layer(features, targets, groups, output_dim, solver, device):
 
 
 def run_probing(model_name, targets, probe_set, solver, grouping, device,
-                features_root=None, output_suffix=""):
+                features_root=None, output_suffix="", cv_n_splits=None):
     """Run all probes for a model across all layers."""
     cfg = MODEL_CONFIGS[model_name]
     n_layers = cfg["depth"]
@@ -537,7 +561,8 @@ def run_probing(model_name, targets, probe_set, solver, grouping, device,
                 f"Feature dim mismatch at layer {layer}: {features.shape[1]} != {embed_dim}"
 
             mean_r2, std_r2, best_lrs, best_wds = evaluate_layer(
-                features, target_data, groups, output_dim, solver, device
+                features, target_data, groups, output_dim, solver, device,
+                cv_n_splits=cv_n_splits,
             )
             results.append({
                 "layer": layer,
@@ -809,7 +834,26 @@ def main():
             "with patience 10 (Phase 2-B weak probe)."
         ),
     )
-    parser.add_argument("--grouping", choices=["position", "condition"], default="condition")
+    parser.add_argument(
+        "--grouping",
+        choices=["position", "condition", "direction"],
+        default="condition",
+        help=(
+            "GroupKFold key. position/condition share direction angles across "
+            "train and val folds. direction puts every video of one angle into "
+            "a single fold (leave-one-direction-out when combined with "
+            "--cv-splits 8)."
+        ),
+    )
+    parser.add_argument(
+        "--cv-splits",
+        type=int,
+        default=None,
+        help=(
+            "Override GroupKFold n_splits. Defaults to CV_N_SPLITS=5. For LOO "
+            "direction use --grouping direction --cv-splits 8."
+        ),
+    )
     parser.add_argument(
         "--features-root",
         default=None,
@@ -834,6 +878,7 @@ def main():
         run_probing(
             model_name, targets, args.probe_set, args.solver, args.grouping, device,
             features_root=args.features_root, output_suffix=args.output_suffix,
+            cv_n_splits=args.cv_splits,
         )
 
     elapsed = time.time() - start_time

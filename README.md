@@ -144,18 +144,58 @@ Weak probes drop absolute R² by ~1–3 % but leave the curve *shape* essentiall
 unchanged. Block 0 is still doing the bulk of the direction emergence.
 Probe strength is therefore **not** the dominant cause of the mismatch.
 
-#### Current verdict
+#### Phase 3 — leakage check (direction-grouped CV)
 
-**Partial qualitative L0 reproduction. Quantitative mid-depth transition not
-reproduced, regardless of probe strength.** Remaining hypotheses to test:
+Position grouping in Phases 1–2 still allows the same direction angle to appear
+in both train and val folds, so the probe can memorize per-angle features.
+Phase 3 switches to GroupKFold with `grouping=direction`.
 
-1. **Leakage via grouping**: position grouping still allows the same
-   direction angle to appear in both train and val folds. LOO over
-   direction (8-fold) is the next experiment.
-2. **Scene complexity**: our OpenCV/Kubric renders are visually much simpler
-   than the paper's, so a single block may plausibly suffice to untangle
-   speed from direction. If so, the "failure" is real model behavior rather
-   than a reproduction bug.
+Pure LOO (`--cv-splits 8`) turned out to be ill-posed for the direction probe:
+with 8 angles / 8 folds, each val fold contains a single angle, so the
+`(sin θ, cos θ)` target is constant within that fold, `ss_tot = 0`, and R² is
+undefined (the batched trainable produced -3.7e12; adamw100 returned 0.000 by
+its edge-case handler). The 8-fold CSVs were moved to `artifacts/results/archive/`.
+
+The valid setup is `--grouping direction --cv-splits 4` — each val fold now holds
+out 2 of the 8 angles, so the targets still vary inside the val fold but no
+held-out angle ever appears in training.
+
+Direction-R² summary (pre-block features):
+
+| probe / grouping | L0 | L1–L6 mean | L3 | L8 | first ≥ 0.8 |
+|------------------|----|------------|----|----|-------------|
+| trainable / position 5-fold | 0.087 | 0.897 | 0.933 | 0.985 | L2 |
+| trainable / direction 4-fold | **−0.220** | 0.806 | 0.804 | 0.974 | L3 |
+| adamw100 / position 5-fold | 0.038 | 0.838 | 0.855 | 0.966 | L3 |
+| adamw100 / direction 4-fold | **−0.300** | 0.688 | 0.609 | 0.955 | **L5** |
+
+Switching to direction grouping:
+- drops direction R² at every layer (so some of the earlier signal was
+  angle-memorization),
+- also drops **speed** R² at layer 0 (trainable: 0.254 → 0.070, adamw100:
+  0.206 → 0.036), consistent with speed and direction being entangled in the
+  raw patch embedding,
+- shifts the direction "first ≥ 0.8" layer right — from L2 (trainable, position)
+  to L5 (adamw100, direction grouping). That is closer to the paper's ~L8
+  target but still does not reach the paper's ~1/3-depth transition.
+
+#### Current verdict (Phases 1–3)
+
+Combining the indexing fix (Phase 1), probe-strength check (Phase 2), and
+direction-grouped CV (Phase 3):
+
+- L0 qualitative pattern reproduces (direction ≈ 0, speed low, accel ≈ 0).
+- Mid-depth sharp transition **does not** land at ~1/3 depth. The best run
+  (adamw100 + direction grouping) puts the direction `first ≥ 0.8` layer at L5
+  on a 24-layer ViT-L. Paper target is L7–L10.
+
+Remaining hypothesis to test:
+
+**Scene complexity (Phase 4)**: our OpenCV/Kubric renders are visually much
+simpler than the paper's Kubric scenes (no texture, no HDRI, single blue ball
+on gray floor), so a single transformer block may plausibly suffice to
+separate motion from appearance. If so, the "failure" is real model behavior
+on our dataset rather than a reproduction bug.
 
 ## Notes
 
