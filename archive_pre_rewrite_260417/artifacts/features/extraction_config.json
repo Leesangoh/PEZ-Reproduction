@@ -1,0 +1,28 @@
+{
+  "input_size": 224,
+  "n_frames": 16,
+  "normalization": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "pooling": "spatiotemporal_mean",
+  "feature_source": "raw_residual_stream",
+  "expected_tokens": 1568,
+  "models": {
+    "vjepa2_G": {
+      "model_size": "giant",
+      "depth": 40,
+      "embed_dim": 1408,
+      "checkpoint": "/mnt/md1/solee/checkpoints/vjepa2/vitg.pt",
+      "batch_size": 4
+    }
+  }
+}

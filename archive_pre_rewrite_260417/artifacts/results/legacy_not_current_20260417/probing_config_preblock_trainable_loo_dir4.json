@@ -1,0 +1,48 @@
+{
+  "probe_set": "polar",
+  "paper_appendix_b_learning_rates": [
+    0.0001,
+    0.0003,
+    0.001,
+    0.003,
+    0.005
+  ],
+  "paper_appendix_b_weight_decays": [
+    0.01,
+    0.1,
+    0.4,
+    0.8
+  ],
+  "cv_splits": 5,
+  "cv_random_seed": 42,
+  "grouping": "direction",
+  "probes": [
+    {
+      "name": "speed",
+      "output_dim": 1,
+      "dataset": "velocity",
+      "target": "speed"
+    },
+    {
+      "name": "direction",
+      "output_dim": 2,
+      "dataset": "velocity",
+      "target": "direction_sincos"
+    },
+    {
+      "name": "acceleration",
+      "output_dim": 1,
+      "dataset": "acceleration",
+      "target": "accel_magnitude"
+    }
+  ],
+  "optimizer": "Adam",
+  "loss": "MSE",
+  "batch_mode": "full_batch",
+  "protocol": "appendix_b_grouped_5fold_cv",
+  "note": "Appendix B specifies grouped 5-fold CV plus lr/wd sweeps, but does not specify optimizer or epoch count for the main layerwise probes.",
+  "solver": "trainable",
+  "device": "cuda:0",
+  "trainable_max_epochs": 400,
+  "trainable_patience": 40
+}

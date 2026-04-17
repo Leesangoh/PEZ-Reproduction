@@ -71,7 +71,8 @@ MODEL_CONFIGS = {
     },
 }
 
-# Write to a sibling directory so post-block features remain available.
+# Default output root. Can be overridden by --output-root so multiple extraction
+# conventions or input resolutions can coexist.
 FEATURES_PREBLOCK_ROOT = os.path.join(os.path.dirname(FEATURES_ROOT), "features_preblock")
 
 
@@ -117,7 +118,7 @@ def forward_preblock(self, x, masks=None):
     return x
 
 
-def load_model(model_size, device):
+def load_model(model_size, device, input_size):
     import models.vision_transformer as vit_module
 
     cfg = MODEL_CONFIGS[model_size]
@@ -126,7 +127,7 @@ def load_model(model_size, device):
     factory_fn = getattr(vit_module, cfg["factory"])
     model = factory_fn(
         patch_size=16,
-        img_size=(VJEPA2_INPUT_SIZE, VJEPA2_INPUT_SIZE),
+        img_size=(input_size, input_size),
         num_frames=64,
         tubelet_size=2,
         out_layers=out_layers,
@@ -151,13 +152,27 @@ def load_model(model_size, device):
     model = model.to(device).eval()
     print(f"Loaded V-JEPA 2 {model_size} (PRE-BLOCK mode): "
           f"embed_dim={cfg['embed_dim']}, depth={cfg['depth']}, "
-          f"checkpoint={os.path.basename(cfg['checkpoint'])}")
+          f"checkpoint={os.path.basename(cfg['checkpoint'])}, "
+          f"img_size={input_size}")
     return model, cfg
 
 
-def get_transform():
+def get_transform(input_size, transform_mode):
+    if transform_mode == "resize":
+        spatial = transforms.Resize((input_size, input_size), antialias=True)
+    elif transform_mode == "centercrop":
+        spatial = transforms.CenterCrop((input_size, input_size))
+    elif transform_mode == "eval_preproc":
+        short_side = int(input_size * 256 / 224)
+        spatial = transforms.Compose([
+            transforms.Resize(short_side, antialias=True),
+            transforms.CenterCrop((input_size, input_size)),
+        ])
+    else:
+        raise ValueError(f"Unknown transform_mode: {transform_mode}")
+
     return transforms.Compose([
-        transforms.Resize((VJEPA2_INPUT_SIZE, VJEPA2_INPUT_SIZE), antialias=True),
+        spatial,
         transforms.ConvertImageDtype(torch.float32),
         transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
     ])
@@ -204,6 +219,23 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", nargs="+", choices=list(MODEL_CONFIGS.keys()),
                         default=["large"])
+    parser.add_argument(
+        "--output-root",
+        default=None,
+        help="Override output root (e.g. artifacts/features_preblock_256).",
+    )
+    parser.add_argument(
+        "--input-size",
+        type=int,
+        default=VJEPA2_INPUT_SIZE,
+        help="Model input spatial size.",
+    )
+    parser.add_argument(
+        "--transform",
+        choices=["resize", "centercrop", "eval_preproc"],
+        default="resize",
+        help="Spatial preprocessing before normalization.",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -211,7 +243,10 @@ def main():
     print("=" * 60)
 
     device = "cuda:0"
-    transform = get_transform()
+    transform = get_transform(args.input_size, args.transform)
+    features_root = args.output_root if args.output_root is not None else FEATURES_PREBLOCK_ROOT
+    print(f"Output root: {features_root}")
+    print(f"Input size: {args.input_size} | transform: {args.transform}")
 
     datasets = {}
     for dataset_name in ["velocity", "acceleration"]:
@@ -229,11 +264,11 @@ def main():
         print(f"Model: {model_name} ({model_size})")
         print(f"{'='*40}")
 
-        model, _ = load_model(model_size, device)
+        model, _ = load_model(model_size, device, args.input_size)
         t0 = time.time()
 
         for dataset_name, video_dirs in datasets.items():
-            out_dir = os.path.join(FEATURES_PREBLOCK_ROOT, model_name, dataset_name)
+            out_dir = os.path.join(features_root, model_name, dataset_name)
             os.makedirs(out_dir, exist_ok=True)
 
             print(f"\n  Dataset: {dataset_name} ({len(video_dirs)} videos)")
