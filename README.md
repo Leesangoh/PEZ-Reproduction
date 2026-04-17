@@ -127,8 +127,8 @@ we reran the pipeline with two deliberately weaker probes:
 - `--solver ridge_weak`: closed-form ridge, α ∈ {1, 10, 100}
 - `--solver adamw100`: single-HP AdamW (lr=1e-3, wd=0.1), 100 epochs, patience 10
 
-Same seed, same position grouping, same folds. 2×3 grid (feature convention ×
-probe strength) saved as `pez_reproduction_vitl_phase2_2x3.png`.
+Same seed, same position grouping, same folds. 2×2 grid (feature convention ×
+weak probe) saved as `artifacts/results/pez_reproduction_vitl_phase2_2x2.png`.
 
 Phase 1 decision criteria evaluated on the pre-block × weak-probe runs:
 
