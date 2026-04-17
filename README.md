@@ -88,11 +88,17 @@ This reproduction has already fixed several major mismatches against the paper:
 
 The main open question is whether the corrected dataset and probe protocol recover the paper's PEZ-style late emergence of polar direction information, especially for `V-JEPA 2-L` and `V-JEPA 2-G`.
 
-### Pre-block convention — ViT-L result (2026-04-17)
+### Partial reproduction — ViT-L result (2026-04-17)
+
+This reproduction recovers the paper's PEZ pattern **only at layer 0** (patch
+embedding). The paper's quantitative claim of a *sharp mid-depth transition*
+at ~1/3 of the network's depth is **not** reproduced on our dataset, regardless
+of probe strength.
+
+#### Phase 1 — layer-indexing fix (pre-block convention)
 
 Using `step2_extract_preblock.py` with the batched trainable probe
-(`--solver trainable --grouping position --probe-set polar`) we reproduce the
-qualitative PEZ pattern on V-JEPA 2-L:
+(`--solver trainable --grouping position --probe-set polar`):
 
 | Layer | Speed R² | Direction R² | Accel R² |
 |-------|----------|--------------|----------|
@@ -100,21 +106,56 @@ qualitative PEZ pattern on V-JEPA 2-L:
 | 1 (post-block-0) | 0.960 | 0.699 | 0.952 |
 | 3 | 0.964 | 0.933 | 0.952 |
 | 8 | 0.986 | 0.985 | 0.979 |
-| 16 | 0.994 | 0.995 | 0.990 |
-| 23 | 0.992 | **0.996** | 0.989 |
+| 23 | 0.992 | 0.996 | 0.989 |
 
-Key observations at layer 0 (patch-embed only, no blocks applied):
-- direction R² ≈ 0, matching the paper's claim that direction is not decodable
-  at the earliest layer
-- speed R² is small but already above direction, matching the paper's
-  speed-emerges-before-direction ordering
-- acceleration R² ≈ 0, also matching the paper
+At layer 0 (patch-embed only, no transformer blocks applied):
+- direction R² ≈ 0 — matches the paper at that layer
+- speed R² is small but already above direction — matches the paper's
+  speed-before-direction ordering
+- acceleration R² ≈ 0 — matches the paper
 
-The direction-R² transition is steeper than the paper's ViT-L curve
-(the jump happens inside the first ~3 blocks rather than ~1/3 of the way
-through the network). This is consistent with our rendering being visually
-much simpler than the paper's Kubric scenes, so fewer blocks are needed to
-separate speed from direction.
+But already at **layer 1** (just one transformer block beyond patch_embed) the
+direction R² jumps to ~0.70 — i.e. the transition is almost entirely inside the
+*first* block rather than across the first ~1/3 of the network.
+
+#### Phase 2 — probe strength check (weak probes)
+
+To rule out the possibility that our strong probe (AdamW over a 5×4 HP grid,
+400 epochs with early stopping) was artificially inflating R² at early layers,
+we reran the pipeline with two deliberately weaker probes:
+
+- `--solver ridge_weak`: closed-form ridge, α ∈ {1, 10, 100}
+- `--solver adamw100`: single-HP AdamW (lr=1e-3, wd=0.1), 100 epochs, patience 10
+
+Same seed, same position grouping, same folds. 2×3 grid (feature convention ×
+probe strength) saved as `pez_reproduction_vitl_phase2_2x3.png`.
+
+Phase 1 decision criteria evaluated on the pre-block × weak-probe runs:
+
+| Criterion | Target | pre+trainable | pre+ridge_weak | pre+adamw100 |
+|-----------|--------|----------------|----------------|--------------|
+| L0 direction | ≈ 0.05–0.10 | 0.087 ✓ | 0.040 ✓ | 0.038 ✓ |
+| L1–L6 direction mean | < 0.4 | 0.897 ✗ | 0.863 ✗ | 0.838 ✗ |
+| L0 speed | 0.0–0.3 | 0.254 ✓ | 0.174 ✓ | 0.206 ✓ |
+| Direction first ≥ 0.8 | L7–L10 | L2 ✗ | L2 ✗ | L3 ✗ |
+| **Score** |  | **2/4** | **2/4** | **2/4** |
+
+Weak probes drop absolute R² by ~1–3 % but leave the curve *shape* essentially
+unchanged. Block 0 is still doing the bulk of the direction emergence.
+Probe strength is therefore **not** the dominant cause of the mismatch.
+
+#### Current verdict
+
+**Partial qualitative L0 reproduction. Quantitative mid-depth transition not
+reproduced, regardless of probe strength.** Remaining hypotheses to test:
+
+1. **Leakage via grouping**: position grouping still allows the same
+   direction angle to appear in both train and val folds. LOO over
+   direction (8-fold) is the next experiment.
+2. **Scene complexity**: our OpenCV/Kubric renders are visually much simpler
+   than the paper's, so a single block may plausibly suffice to untangle
+   speed from direction. If so, the "failure" is real model behavior rather
+   than a reproduction bug.
 
 ## Notes
 

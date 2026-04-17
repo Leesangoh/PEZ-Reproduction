@@ -39,6 +39,13 @@ APPENDIX_B_WD_GRID = [0.01, 0.1, 0.4, 0.8]
 TRAINABLE_MAX_EPOCHS = 400
 TRAINABLE_PATIENCE = 40
 
+# Phase 2 "weak probe" grids — closer to paper's unspecified minimal linear probe.
+RIDGE_WEAK_ALPHA_GRID = [1.0, 10.0, 100.0]
+ADAMW100_LR = 1e-3
+ADAMW100_WD = 0.1
+ADAMW100_MAX_EPOCHS = 100
+ADAMW100_PATIENCE = 10
+
 PROBE_SETS = {
     "polar": [
         ("speed", 1, "velocity", "speed"),
@@ -83,10 +90,11 @@ def extract_groups(video_ids, grouping):
     raise ValueError(f"Unknown grouping: {grouping}")
 
 
-def result_csv_path(model_name, probe_set):
+def result_csv_path(model_name, probe_set, suffix=""):
+    sfx = f"_{suffix}" if suffix else ""
     if probe_set == "polar":
-        return os.path.join(RESULTS_ROOT, f"results_{model_name}.csv")
-    return os.path.join(RESULTS_ROOT, f"results_{probe_set}_{model_name}.csv")
+        return os.path.join(RESULTS_ROOT, f"results_{model_name}{sfx}.csv")
+    return os.path.join(RESULTS_ROOT, f"results_{probe_set}_{model_name}{sfx}.csv")
 
 
 def probing_config_path(probe_set):
@@ -165,8 +173,15 @@ def fit_probe(X_train, y_train, X_val, y_val, alpha):
     return compute_r2(y_val, pred_val)
 
 
-def fit_trainable_probe(X_train, y_train, X_val, y_val, output_dim, lr, weight_decay, device):
+def fit_trainable_probe(
+    X_train, y_train, X_val, y_val, output_dim, lr, weight_decay, device,
+    max_epochs=None, patience_limit=None,
+):
     """Fit a trainable linear probe with standardized inputs/targets."""
+    if max_epochs is None:
+        max_epochs = TRAINABLE_MAX_EPOCHS
+    if patience_limit is None:
+        patience_limit = TRAINABLE_PATIENCE
     X_train = np.asarray(X_train, dtype=np.float32)
     X_val = np.asarray(X_val, dtype=np.float32)
     y_train = np.asarray(y_train, dtype=np.float32)
@@ -206,7 +221,7 @@ def fit_trainable_probe(X_train, y_train, X_val, y_val, output_dim, lr, weight_d
     best_pred = None
     patience = 0
 
-    for _ in range(TRAINABLE_MAX_EPOCHS):
+    for _ in range(max_epochs):
         probe.train()
         pred = probe(X_tr)
         loss = criterion(pred, y_tr)
@@ -226,7 +241,7 @@ def fit_trainable_probe(X_train, y_train, X_val, y_val, output_dim, lr, weight_d
             patience = 0
         else:
             patience += 1
-            if patience >= TRAINABLE_PATIENCE:
+            if patience >= patience_limit:
                 break
 
     if best_state is None:
@@ -427,6 +442,42 @@ def evaluate_layer(features, targets, groups, output_dim, solver, device):
             fold_best_wds.append(best_wd)
             continue
 
+        if solver == "ridge_weak":
+            # Phase 2-A: closed-form ridge with a small alpha grid.
+            best_score = -np.inf
+            best_alpha = None
+            for alpha in RIDGE_WEAK_ALPHA_GRID:
+                score = fit_probe(
+                    features[train_idx], targets[train_idx],
+                    features[val_idx], targets[val_idx],
+                    alpha=alpha,
+                )
+                if score > best_score:
+                    best_score = score
+                    best_alpha = alpha
+            fold_scores.append(best_score)
+            fold_best_lrs.append(0.0)          # no LR for closed-form
+            fold_best_wds.append(best_alpha)
+            continue
+
+        if solver == "adamw100":
+            # Phase 2-B: single-HP AdamW (lr=1e-3, wd=0.1), 100 epochs, patience 10.
+            # Intentionally paper-minimal: no HP sweep, short training.
+            score = fit_trainable_probe(
+                features[train_idx], targets[train_idx],
+                features[val_idx], targets[val_idx],
+                output_dim=output_dim,
+                lr=ADAMW100_LR,
+                weight_decay=ADAMW100_WD,
+                device=device,
+                max_epochs=ADAMW100_MAX_EPOCHS,
+                patience_limit=ADAMW100_PATIENCE,
+            )
+            fold_scores.append(score)
+            fold_best_lrs.append(ADAMW100_LR)
+            fold_best_wds.append(ADAMW100_WD)
+            continue
+
         # --- Legacy path (ridge, trainable_unbatched) ---
         best_score = -np.inf
         best_lr = None
@@ -464,13 +515,15 @@ def evaluate_layer(features, targets, groups, output_dim, solver, device):
     return float(np.mean(fold_scores)), float(np.std(fold_scores)), fold_best_lrs, fold_best_wds
 
 
-def run_probing(model_name, targets, probe_set, solver, grouping, device):
+def run_probing(model_name, targets, probe_set, solver, grouping, device,
+                features_root=None, output_suffix=""):
     """Run all probes for a model across all layers."""
     cfg = MODEL_CONFIGS[model_name]
     n_layers = cfg["depth"]
     embed_dim = cfg["embed_dim"]
     results = []
     probe_configs = PROBE_SETS[probe_set]
+    feats_root = features_root if features_root is not None else FEATURES_ROOT
 
     for probe_name, output_dim, dataset, target_key in probe_configs:
         print(f"\n  Probe: {probe_name} (output_dim={output_dim}, dataset={dataset})")
@@ -478,7 +531,7 @@ def run_probing(model_name, targets, probe_set, solver, grouping, device):
         groups = extract_groups(targets[dataset]["video_ids"], grouping)
 
         for layer in range(n_layers):
-            feat_path = os.path.join(FEATURES_ROOT, model_name, dataset, f"layer_{layer:02d}.npy")
+            feat_path = os.path.join(feats_root, model_name, dataset, f"layer_{layer:02d}.npy")
             features = np.load(feat_path)
             assert features.shape[1] == embed_dim, \
                 f"Feature dim mismatch at layer {layer}: {features.shape[1]} != {embed_dim}"
@@ -501,7 +554,7 @@ def run_probing(model_name, targets, probe_set, solver, grouping, device):
                       f"best wd mode={results[-1]['best_wd']})")
 
     df = pd.DataFrame(results)
-    csv_path = result_csv_path(model_name, probe_set)
+    csv_path = result_csv_path(model_name, probe_set, suffix=output_suffix)
     df.to_csv(csv_path, index=False)
     print(f"\n  Results saved to {csv_path}")
     return df
@@ -745,16 +798,28 @@ def main():
     parser.add_argument("--probe-set", choices=list(PROBE_SETS.keys()), default="polar")
     parser.add_argument(
         "--solver",
-        choices=["ridge", "trainable", "trainable_unbatched"],
+        choices=["ridge", "ridge_weak", "trainable", "trainable_unbatched", "adamw100"],
         default="trainable",
         help=(
-            "ridge: closed-form L2 regression. "
-            "trainable: Adam-trained linear probe with all 20 HP configs batched "
-            "into a single parallel forward/backward (fast, default). "
-            "trainable_unbatched: legacy per-config loop (slow, for verification)."
+            "ridge: closed-form L2 regression over Appendix B WD grid. "
+            "ridge_weak: closed-form L2 with alpha in {1, 10, 100} (Phase 2-A weak probe). "
+            "trainable: Adam-trained linear probe, all 20 HP configs batched (default). "
+            "trainable_unbatched: legacy per-config loop (slow, for verification). "
+            "adamw100: single-HP AdamW (lr=1e-3, wd=0.1) for 100 epochs "
+            "with patience 10 (Phase 2-B weak probe)."
         ),
     )
     parser.add_argument("--grouping", choices=["position", "condition"], default="condition")
+    parser.add_argument(
+        "--features-root",
+        default=None,
+        help="Override FEATURES_ROOT. Use to point at features_preblock/ for paper-convention extraction.",
+    )
+    parser.add_argument(
+        "--output-suffix",
+        default="",
+        help="Suffix appended to result CSV filename (e.g. 'preblock_ridge' -> results_vjepa2_L_preblock_ridge.csv).",
+    )
     args = parser.parse_args()
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -766,7 +831,10 @@ def main():
         print(f"\n{'='*40}")
         print(f"Model: {model_name}")
         print(f"{'='*40}")
-        run_probing(model_name, targets, args.probe_set, args.solver, args.grouping, device)
+        run_probing(
+            model_name, targets, args.probe_set, args.solver, args.grouping, device,
+            features_root=args.features_root, output_suffix=args.output_suffix,
+        )
 
     elapsed = time.time() - start_time
     print(f"\nTotal probing time: {elapsed:.1f}s")
@@ -796,18 +864,26 @@ def main():
         "trainable_max_epochs": TRAINABLE_MAX_EPOCHS if args.solver == "trainable" else None,
         "trainable_patience": TRAINABLE_PATIENCE if args.solver == "trainable" else None,
     }
-    with open(probing_config_path(args.probe_set), "w") as f:
+    cfg_sfx = f"_{args.output_suffix}" if args.output_suffix else ""
+    cfg_path = probing_config_path(args.probe_set).replace(
+        ".json", f"{cfg_sfx}.json"
+    )
+    with open(cfg_path, "w") as f:
         json.dump(config, f, indent=2)
 
-    # Generate figures
-    print("\nGenerating figures...")
-    if args.probe_set == "polar":
-        generate_figure_2c()
-        generate_acceleration_figure()
-        generate_all_probes_figure()
-        check_pez_pattern()
-    elif args.probe_set == "cartesian":
-        generate_cartesian_figure()
+    # Generate figures (skip when using a custom output suffix — the default
+    # figure pipeline reads the canonical filenames).
+    if args.output_suffix:
+        print(f"\nSkipping figure generation (output-suffix={args.output_suffix!r}).")
+    else:
+        print("\nGenerating figures...")
+        if args.probe_set == "polar":
+            generate_figure_2c()
+            generate_acceleration_figure()
+            generate_all_probes_figure()
+            check_pez_pattern()
+        elif args.probe_set == "cartesian":
+            generate_cartesian_figure()
 
     print(f"\nStep 3 complete!")
     print(f"Output: {RESULTS_ROOT}/")
