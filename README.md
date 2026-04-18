@@ -4,7 +4,7 @@
 [![Model](https://img.shields.io/badge/model-V--JEPA%202-blue)](https://github.com/facebookresearch/vjepa2)
 [![Reproduction](https://img.shields.io/badge/reproduction-5%2F5%20figures-brightgreen)](#tldr--reproduction-status)
 
-> A faithful reproduction of the **Physics Emergence Zone (PEZ)** findings from META Superintelligence Lab's paper on V-JEPA 2.
+> A personal reproduction study of the **Physics Emergence Zone (PEZ)** findings from META Superintelligence Lab's paper on V-JEPA 2. This is an independent effort — not affiliated with the original authors.
 
 **Paper**: [Interpreting Physics in Video World Models](https://arxiv.org/abs/2602.07050) (META Superintelligence Lab, 2026)  
 **Local copy**: [pez_paper.pdf](./pez_paper.pdf)  
@@ -56,7 +56,7 @@ What `Qualified`, `Partial`, and `Overall-only` mean is defined in [Section 3](#
 - [3. Reproduction Quality Levels](#3-reproduction-quality-levels)
 - [4. Reproduction Guide](#4-reproduction-guide-figure-by-figure)
 - [5. Known Gaps](#5-known-gaps)
-- [6. Citation](#6-citation)
+- [6. Disclaimer](#6-disclaimer)
 - [Acknowledgments](#acknowledgments)
 
 ## 1. Setup
@@ -451,19 +451,11 @@ env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphy
   - spatiotemporal continuity  
   is not public in the same form as the paper's appendix figures
 - Figure 2(b) remains incomplete because no single recipe matches both Cartesian probes
-- Figure 6 and Figure 8 should be interpreted as overall-row reproductions rather than full subtask-faithful replications
+- Figure 6 and Figure 8 should be interpreted as overall-row reproductions rather than full subtask-level replications
 
-## 6. Citation
+## 6. Disclaimer
 
-```bibtex
-@article{vjepa2physics2026,
-  title={Interpreting Physics in Video World Models},
-  author={META Superintelligence Lab},
-  year={2026},
-  eprint={2602.07050},
-  archivePrefix={arXiv}
-}
-```
+This is a **personal reproduction study** done out of interest in V-JEPA 2's physics interpretability. It is not affiliated with, endorsed by, or verified against the original authors. All code and conclusions here are my own; any mistakes are my responsibility. For the authoritative results, please refer to the [original paper](https://arxiv.org/abs/2602.07050).
 
 ## Acknowledgments
 
