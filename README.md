@@ -1,12 +1,20 @@
 # Reproduction of [Interpreting Physics in Video World Models]
 
-> A faithful reproduction of the Physics Emergence Zone (PEZ) findings from META Superintelligence Lab's paper on V-JEPA 2.
+[![arXiv](https://img.shields.io/badge/arXiv-2602.07050-b31b1b.svg)](https://arxiv.org/abs/2602.07050)
+[![Model](https://img.shields.io/badge/model-V--JEPA%202-blue)](https://github.com/facebookresearch/vjepa2)
+[![Reproduction](https://img.shields.io/badge/reproduction-5%2F5%20figures-brightgreen)](#tldr--reproduction-status)
+
+> A faithful reproduction of the **Physics Emergence Zone (PEZ)** findings from META Superintelligence Lab's paper on V-JEPA 2.
 
 **Paper**: [Interpreting Physics in Video World Models](https://arxiv.org/abs/2602.07050) (META Superintelligence Lab, 2026)  
 **Local copy**: [pez_paper.pdf](./pez_paper.pdf)  
-**Model**: V-JEPA 2 (Large / Giant / Huge)
+**Model**: V-JEPA 2 (Large / Giant / Huge) — [facebookresearch/vjepa2](https://github.com/facebookresearch/vjepa2)
 
-Keywords: `V-JEPA 2`, `Physics Emergence Zone`, `PEZ`, `video world models`, `interpretability`, `linear probing`, `attentive probing`, `IntPhys`, `Kubric`, `META Superintelligence Lab`, `reproduction study`
+**Keywords**: `V-JEPA 2` · `Physics Emergence Zone` · `PEZ` · `video world models` · `interpretability` · `linear probing` · `attentive probing` · `IntPhys` · `Kubric` · `META Superintelligence Lab` · `reproduction study`
+
+## What is the Physics Emergence Zone (PEZ)?
+
+The paper shows that in self-supervised video world models like V-JEPA 2, **physical concepts such as direction-of-motion emerge abruptly at roughly one-third of network depth** — not gradually, and not at the input. Scalar magnitudes (speed, acceleration) are linearly decodable from the input, but direction only becomes linearly available at an intermediate "zone" (around layer 8 in V-JEPA 2 Large). This repository reproduces that finding and probes how much of the paper's pipeline is actually specified in public materials.
 
 ---
 
@@ -188,7 +196,7 @@ env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step3_probe
 - `./artifacts/results/results_fig2c_iter11_residpost_tlast_dirsector_angle.csv`
 - `./artifacts/results/figure2c_final.png`
 
-### Figure 2(b) Cartesian — failed ❌
+### Figure 2(b) Cartesian — partial ⚠️
 
 This panel is not fully reproducible with one coherent recipe.
 
@@ -327,7 +335,7 @@ env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphy
 - `./artifacts/results/summary_intphys_possible_impossible_full_select_relative.json`
 - `./artifacts/results/figure_intphys_possible_impossible_full_metrics16.png`
 
-### Figure 6 — overall-only partial reproduction ✅
+### Figure 6 — overall-only partial reproduction ⚠️
 
 **What is reproduced**
 
@@ -372,7 +380,7 @@ env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphy
 - `./artifacts/results/figure6_intphys_overall_compare.png`
 - `./artifacts/results/figure6_verdict.md`
 
-### Figure 8 — overall-only partial reproduction ✅
+### Figure 8 — overall-only partial reproduction ⚠️
 
 **Pipeline**
 
