@@ -1,37 +1,219 @@
 # PEZ Figure 2 Rewrite
 
-## Final Consolidation
+## Best Configuration for Reproduction
 
-Final figures:
+Final consolidated outputs:
 
 - [figure2c_final.png](/home/solee/pez/artifacts/results/figure2c_final.png)
 - [figure2b_final.png](/home/solee/pez/artifacts/results/figure2b_final.png)
 - [figure_reproduction_summary.png](/home/solee/pez/artifacts/results/figure_reproduction_summary.png)
-
-Final report:
-
 - [final_reproduction_report.md](/home/solee/pez/artifacts/results/final_reproduction_report.md)
 
-Final declared outcome:
+### Figure 2(c) Polar (재현 qualified)
 
-- Figure 2(c): `yes`
-- Figure 2(b): `no`
+재현 상태: `qualified`
 
-Final config matrix:
+Config:
 
-| probe | selected run | capture | pooling | grouping | target | norm | solver |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `speed` | `fig2c_iter11_residpost_tlast_dirsector_angle` | `resid_post` | `temporal_last` | `direction_spatial_sector` | `angle` | `zscore` | `trainable` |
-| `direction` | `fig2c_iter11_residpost_tlast_dirsector_angle` | `resid_post` | `temporal_last` | `direction_spatial_sector` | `angle` | `zscore` | `trainable` |
-| `acceleration` | `fig2c_iter11_residpost_tlast_dirsector_angle` | `resid_post` | `temporal_last` | `direction_spatial_sector` | `angle` | `zscore` | `trainable` |
-| `velocity_xy` | `fig2b_iter23_velocity_residpost_tlastpatch_magsector_center` | `resid_post` | `temporal_last_patch` | `magnitude_spatial_sector` | `vxy` | `center` | `trainable` |
-| `acceleration_xy` | `fig2b_iter16_accel_residpost_tlast_magnitude_center` | `resid_post` | `temporal_last` | `magnitude` | `vxy` | `center` | `trainable` |
+| field | value |
+| --- | --- |
+| capture | `resid_post` |
+| pooling | `temporal_last` |
+| grouping | `direction_spatial_sector` |
+| target | `angle` |
+| norm | `zscore` |
+| solver | `trainable (20 HP sweep)` |
+| selected run | `fig2c_iter11_residpost_tlast_dirsector_angle` |
 
-Best-run links:
+Key metrics:
+
+| probe | L0 | L8 | peak | late decline |
+| --- | ---: | ---: | ---: | ---: |
+| `speed` | `0.895` | `0.983` | `0.988 @ L19` | `0.988 -> 0.985` |
+| `direction` | `0.326` | `0.816` | `0.876 @ L16` | `0.876 -> 0.835` |
+| `acceleration` | `0.866` | `0.974` | `0.986 @ L20` | `0.986 -> 0.981` |
+
+실행 명령어:
+
+```bash
+env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh /home/solee/pez/step2_extract.py \
+  --capture resid_post \
+  --transform resize \
+  --pooling temporal_last \
+  --output-root /home/solee/pez/artifacts/features/resid_post_resize_temporal_last \
+  --device cuda:0
+```
+
+```bash
+env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 /isaac-sim/python.sh /home/solee/pez/step3_probe.py run \
+  --run-name fig2c_iter11_residpost_tlast_dirsector_angle \
+  --feature-root /home/solee/pez/artifacts/features/resid_post_resize_temporal_last \
+  --probe-set fig2c \
+  --solver trainable \
+  --norm-mode zscore \
+  --grouping direction_spatial_sector \
+  --direction-target angle \
+  --residual-capture resid_post \
+  --preprocessing resize \
+  --device cuda:0
+```
+
+출력 파일:
 
 - [results_fig2c_iter11_residpost_tlast_dirsector_angle.csv](/home/solee/pez/artifacts/results/results_fig2c_iter11_residpost_tlast_dirsector_angle.csv)
+- [figure2c_final.png](/home/solee/pez/artifacts/results/figure2c_final.png)
+
+### Figure 2(b) Cartesian (partial)
+
+재현 상태: `partial`
+
+Config:
+
+| probe | capture | pooling | grouping | target | norm | solver | selected run |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `velocity_xy` | `resid_post` | `temporal_last_patch` | `magnitude_spatial_sector` | `vxy` | `center` | `trainable (20 HP sweep)` | `fig2b_iter23_velocity_residpost_tlastpatch_magsector_center` |
+| `acceleration_xy` | `resid_post` | `temporal_last` | `magnitude` | `vxy` | `center` | `trainable (20 HP sweep)` | `fig2b_iter16_accel_residpost_tlast_magnitude_center` |
+
+Key metrics:
+
+| probe | L0 | L8 | peak | late decline |
+| --- | ---: | ---: | ---: | ---: |
+| `velocity_xy` | `0.527` | `0.908` | `0.926 @ L12` | `0.926 -> 0.908` |
+| `acceleration_xy` | `0.454` | `0.915` | `0.944 @ L21` | `0.944 -> 0.939` |
+
+실행 명령어:
+
+```bash
+env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh /home/solee/pez/step2_extract.py \
+  --capture resid_post \
+  --transform resize \
+  --pooling temporal_last_patch \
+  --output-root /home/solee/pez/artifacts/features/resid_post_resize_temporal_last_patch \
+  --device cuda:0
+```
+
+```bash
+env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 /isaac-sim/python.sh /home/solee/pez/step3_probe.py run \
+  --run-name fig2b_iter23_velocity_residpost_tlastpatch_magsector_center \
+  --feature-root /home/solee/pez/artifacts/features/resid_post_resize_temporal_last_patch \
+  --probe-set fig2b_velocity_xy \
+  --solver trainable \
+  --norm-mode center \
+  --grouping magnitude_spatial_sector \
+  --direction-target vxy \
+  --residual-capture resid_post \
+  --preprocessing resize \
+  --device cuda:0
+```
+
+```bash
+env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 /isaac-sim/python.sh /home/solee/pez/step2_extract.py \
+  --capture resid_post \
+  --transform resize \
+  --pooling temporal_last \
+  --output-root /home/solee/pez/artifacts/features/resid_post_resize_temporal_last \
+  --device cuda:0
+```
+
+```bash
+env CUDA_VISIBLE_DEVICES=3 PYTHONUNBUFFERED=1 /isaac-sim/python.sh /home/solee/pez/step3_probe.py run \
+  --run-name fig2b_iter16_accel_residpost_tlast_magnitude_center \
+  --feature-root /home/solee/pez/artifacts/features/resid_post_resize_temporal_last \
+  --probe-set fig2b_acceleration_xy \
+  --solver trainable \
+  --norm-mode center \
+  --grouping magnitude \
+  --direction-target vxy \
+  --residual-capture resid_post \
+  --preprocessing resize \
+  --device cuda:0
+```
+
+출력 파일:
+
 - [results_fig2b_iter23_velocity_residpost_tlastpatch_magsector_center.csv](/home/solee/pez/artifacts/results/results_fig2b_iter23_velocity_residpost_tlastpatch_magsector_center.csv)
 - [results_fig2b_iter16_accel_residpost_tlast_magnitude_center.csv](/home/solee/pez/artifacts/results/results_fig2b_iter16_accel_residpost_tlast_magnitude_center.csv)
+- [figure2b_final.png](/home/solee/pez/artifacts/results/figure2b_final.png)
+
+### Figure 1 IntPhys possible/impossible (qualified)
+
+재현 상태: `qualified`
+
+Config:
+
+| field | value |
+| --- | --- |
+| dataset | `IntPhys full dev` |
+| capture | `resid_pre` |
+| transform | `resize` |
+| frames | `16-frame sample` |
+| label | `possible vs impossible` |
+| metric | `scene-relative accuracy` |
+| solver | `trainable linear probe` |
+| selected run | `intphys_possible_impossible_full_select_relative` |
+
+Key metrics:
+
+| metric | L0 | L8 | peak | late decline |
+| --- | ---: | ---: | ---: | ---: |
+| `relative_accuracy` | `0.733` | `1.000` | `1.000` | `1.000 -> 1.000` |
+| `clip_accuracy` | `0.519` | `0.736` | `0.769 @ L18` | `0.769 -> 0.728` |
+
+실행 명령어:
+
+```bash
+env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh /home/solee/pez/step_intphys_probe.py \
+  --device cuda:0 \
+  --capture resid_pre \
+  --transform resize \
+  --batch-size 8 \
+  --feature-root /home/solee/pez/artifacts/features/intphys_resid_pre_resize_fulldev \
+  --reuse-features \
+  --run-name intphys_possible_impossible_full_select_relative \
+  --n-frames-sample 16 \
+  --selection-metric relative_accuracy
+```
+
+출력 파일:
+
+- [results_intphys_possible_impossible_full_select_relative.csv](/home/solee/pez/artifacts/results/results_intphys_possible_impossible_full_select_relative.csv)
+- [figure_intphys_possible_impossible_full_select_relative.png](/home/solee/pez/artifacts/results/figure_intphys_possible_impossible_full_select_relative.png)
+- [summary_intphys_possible_impossible_full_select_relative.json](/home/solee/pez/artifacts/results/summary_intphys_possible_impossible_full_select_relative.json)
+
+## Reproduction Notes
+
+Paper에 명시된 spec:
+
+- `V-JEPA v2-L`
+- `16 frames`, `24 fps`, `256 x 256`
+- synthetic ball video on Kubric/PyBullet/Blender
+- layer-wise residual probing
+- linear probe with `20 HP` sweep
+- `5-fold grouped CV`
+
+Paper에 안 적히거나 불충분했던 hidden detail:
+
+- exact residual capture point: `resid_pre` vs `resid_post`
+- exact grouping key for grouped CV
+- direction target parameterization: `angle` vs `sin/cos`
+- temporal pooling detail: `mean` vs `temporal_last`
+- whether patch-level readout is needed for some Cartesian variables
+- IntPhys metric: clip accuracy vs scene-relative accuracy
+
+24+ iteration 뒤에 확인한 critical config choice:
+
+- Figure 2(c)는 `resid_post + temporal_last + direction_spatial_sector + angle`에서만 paper-like onset/peak/decline이 동시에 나왔습니다.
+- Figure 2(b)는 probe-specific recipe가 필요했습니다.
+  - `velocity_xy`: `temporal_last_patch + magnitude_spatial_sector + center`
+  - `acceleration_xy`: `temporal_last + magnitude + center`
+- Figure 1 IntPhys는 clip accuracy로는 안 맞고, `scene-relative accuracy`로 봐야 paper-like `L7/L8` jump가 나왔습니다.
+
+Trade-offs:
+
+- `temporal_diff`는 `L0`를 지나치게 낮춰서 absolute scale을 망쳤습니다.
+- `norm=none`은 polar direction의 `L0`는 낮추지만 `L8` onset을 깨뜨렸습니다.
+- patch-level probing은 `velocity_xy`에는 도움이 됐지만 `acceleration_xy`는 오히려 악화됐습니다.
+- 그래서 현재 final reproduction은 single universal recipe가 아니라, panel/probe-specific best recipe입니다.
 
 This directory was rewritten around reproducing and stress-testing
 Figure 2 from [pez_paper.pdf](/home/solee/pez/pez_paper.pdf), with the main
