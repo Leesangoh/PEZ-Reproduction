@@ -43,7 +43,7 @@ RESULTS_ROOT = Path("/home/solee/pez/artifacts/results")
 
 DEPTH = 24
 EMBED_DIM = 1024
-N_FRAMES_SAMPLE = 16
+DEFAULT_N_FRAMES_SAMPLE = 16
 CV_SPLITS = 5
 CV_RANDOM_SEED = 42
 LR_GRID = [1e-4, 3e-4, 1e-3, 3e-3, 5e-3]
@@ -95,12 +95,12 @@ def list_frames(scene_dir: str):
     return sorted(Path(scene_dir).glob("scene_*.png"))
 
 
-def load_clip(scene_dir: str, transform) -> torch.Tensor:
+def load_clip(scene_dir: str, transform, n_frames_sample: int) -> torch.Tensor:
     frames = list_frames(scene_dir)
     if len(frames) == 0:
         raise FileNotFoundError(f"No frames found in {scene_dir}")
 
-    sample_indices = np.linspace(0, len(frames) - 1, N_FRAMES_SAMPLE).round().astype(int)
+    sample_indices = np.linspace(0, len(frames) - 1, n_frames_sample).round().astype(int)
     sample_paths = [frames[idx] for idx in sample_indices]
 
     tensor_frames = []
@@ -119,6 +119,7 @@ def extract_features(
     transform_name: str,
     feature_root: Path,
     max_scenes_per_block: int | None,
+    n_frames_sample: int,
 ):
     feature_root.mkdir(parents=True, exist_ok=True)
     metadata_path = feature_root / "metadata.json"
@@ -134,7 +135,10 @@ def extract_features(
         end = min(start + batch_size, len(df))
         print(f"extract batch {start}:{end} / {len(df)}")
         batch = torch.stack(
-            [load_clip(df.iloc[idx]["scene_dir"], transform) for idx in range(start, end)]
+            [
+                load_clip(df.iloc[idx]["scene_dir"], transform, n_frames_sample=n_frames_sample)
+                for idx in range(start, end)
+            ]
         ).to(device)
 
         with torch.no_grad():
@@ -154,7 +158,7 @@ def extract_features(
         "n_layers": DEPTH,
         "embed_dim": EMBED_DIM,
         "n_clips": len(df),
-        "n_frames_sample": N_FRAMES_SAMPLE,
+        "n_frames_sample": n_frames_sample,
     }
     metadata_path.write_text(json.dumps(metadata, indent=2))
     return df
@@ -171,7 +175,37 @@ def compute_auc(y_true: np.ndarray, prob: np.ndarray) -> float:
     return float(roc_auc_score(y_true, prob))
 
 
-def fit_binary_probe_batched(X_train, y_train, X_val, y_val, device: str):
+def compute_relative_accuracy(scene_groups, movie_ids, y_true, prob) -> float:
+    frame = pd.DataFrame(
+        {
+            "scene_group": np.asarray(scene_groups),
+            "movie_id": np.asarray(movie_ids),
+            "label": np.asarray(y_true).astype(np.int64),
+            "prob": np.asarray(prob).astype(np.float64),
+        }
+    )
+
+    correct = 0
+    total = 0
+    for _, sub in frame.groupby("scene_group", sort=True):
+        pos = float(sub.loc[sub["label"] == 1, "prob"].sum())
+        imp = float(sub.loc[sub["label"] == 0, "prob"].sum())
+        correct += int(pos > imp)
+        total += 1
+    if total == 0:
+        return 0.0
+    return float(correct / total)
+
+
+def fit_binary_probe_batched(
+    X_train,
+    y_train,
+    X_val,
+    y_val,
+    val_scene_groups,
+    val_movie_ids,
+    device: str,
+):
     configs = list(itertools.product(LR_GRID, WD_GRID))
     n_configs = len(configs)
 
@@ -277,14 +311,19 @@ def fit_binary_probe_batched(X_train, y_train, X_val, y_val, device: str):
                 "wd": float(wd),
                 "acc": compute_accuracy(y_true, prob),
                 "auc": compute_auc(y_true, prob),
+                "relative_acc": compute_relative_accuracy(
+                    val_scene_groups, val_movie_ids, y_true, prob
+                ),
+                "prob": prob,
             }
         )
     return results
 
 
-def evaluate_layers(feature_root: Path, df: pd.DataFrame, device: str):
+def evaluate_layers(feature_root: Path, df: pd.DataFrame, device: str, selection_metric: str):
     groups = df["scene_group"].to_numpy()
     labels = df["label"].to_numpy(dtype=np.int64)
+    movie_ids = df["movie_id"].to_numpy()
     splitter = GroupKFold(n_splits=min(CV_SPLITS, int(np.unique(groups).size)))
 
     rows = []
@@ -292,16 +331,29 @@ def evaluate_layers(feature_root: Path, df: pd.DataFrame, device: str):
         X = np.load(feature_root / f"layer_{layer:02d}.npy")
         fold_accs = []
         fold_aucs = []
+        fold_rel_accs = []
         fold_best_lrs = []
         fold_best_wds = []
 
         for train_idx, val_idx in splitter.split(X, labels, groups):
             cfg_results = fit_binary_probe_batched(
-                X[train_idx], labels[train_idx], X[val_idx], labels[val_idx], device=device
+                X[train_idx],
+                labels[train_idx],
+                X[val_idx],
+                labels[val_idx],
+                groups[val_idx],
+                movie_ids[val_idx],
+                device=device,
             )
-            best = max(cfg_results, key=lambda item: (item["acc"], item["auc"]))
+            if selection_metric == "accuracy":
+                best = max(cfg_results, key=lambda item: (item["acc"], item["auc"]))
+            elif selection_metric == "relative_accuracy":
+                best = max(cfg_results, key=lambda item: (item["relative_acc"], item["acc"]))
+            else:
+                raise ValueError(f"Unknown selection_metric: {selection_metric}")
             fold_accs.append(best["acc"])
             fold_aucs.append(best["auc"])
+            fold_rel_accs.append(best["relative_acc"])
             fold_best_lrs.append(best["lr"])
             fold_best_wds.append(best["wd"])
 
@@ -312,6 +364,8 @@ def evaluate_layers(feature_root: Path, df: pd.DataFrame, device: str):
                 "accuracy_std": float(np.std(fold_accs)),
                 "auc_mean": float(np.mean(fold_aucs)),
                 "auc_std": float(np.std(fold_aucs)),
+                "relative_accuracy_mean": float(np.mean(fold_rel_accs)),
+                "relative_accuracy_std": float(np.std(fold_rel_accs)),
                 "best_lr_mode": float(pd.Series(fold_best_lrs).mode().iloc[0]),
                 "best_wd_mode": float(pd.Series(fold_best_wds).mode().iloc[0]),
             }
@@ -351,6 +405,9 @@ def summarize(df: pd.DataFrame) -> dict:
         "peak_layer": peak_layer,
         "first_ge_85_layer": None if len(ge85) == 0 else int(ge85[0]),
         "late_acc": float(acc[-1]),
+        "l0_relative_acc": float(df["relative_accuracy_mean"].to_numpy()[0]),
+        "l8_relative_acc": float(df["relative_accuracy_mean"].to_numpy()[8]),
+        "peak_relative_acc": float(df["relative_accuracy_mean"].to_numpy().max()),
     }
 
 
@@ -364,6 +421,8 @@ def main():
     parser.add_argument("--reuse-features", action="store_true")
     parser.add_argument("--max-scenes-per-block", type=int, default=None)
     parser.add_argument("--run-name", default="intphys_possible_impossible")
+    parser.add_argument("--n-frames-sample", type=int, default=DEFAULT_N_FRAMES_SAMPLE)
+    parser.add_argument("--selection-metric", choices=["accuracy", "relative_accuracy"], default="accuracy")
     args = parser.parse_args()
 
     feature_root = Path(args.feature_root)
@@ -381,9 +440,15 @@ def main():
             transform_name=args.transform,
             feature_root=feature_root,
             max_scenes_per_block=args.max_scenes_per_block,
+            n_frames_sample=args.n_frames_sample,
         )
 
-    result_df = evaluate_layers(feature_root=feature_root, df=df, device=args.device)
+    result_df = evaluate_layers(
+        feature_root=feature_root,
+        df=df,
+        device=args.device,
+        selection_metric=args.selection_metric,
+    )
     result_df.to_csv(results_csv, index=False)
     plot_curve(result_df, results_png)
     summary = summarize(result_df)

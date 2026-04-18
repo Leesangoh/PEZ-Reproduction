@@ -142,14 +142,18 @@ Main outputs:
 Current status:
 
 - paper target is **Figure 1** (`IntPhys` possible vs impossible)
-- exact paper-faithful reproduction is still blocked by:
-  - underspecified IntPhys preprocessing/split details in the PEZ paper
-  - uncertainty about the exact labeled IntPhys slice used in the paper
-- a full public-dev run was completed and **did not** reproduce the Figure 1 sharp PEZ rise
-  - `L0 accuracy = 53.6%`
-  - `L8 accuracy = 73.9%`
-  - `peak accuracy = 77.2% @ layer 18`
-  - strongest jump appears around `L6 -> L7`, not a sharp `L8` rise
+- deep root-cause analysis:
+  - [intphys_deep_rootcause.md](/home/solee/pez/artifacts/results/intphys_deep_rootcause.md)
+- key finding:
+  - **clip-level accuracy** does not reproduce Figure 1
+  - **scene-relative grouped accuracy** does show a PEZ-like `L7/L8` jump
+- best evidence:
+  - 16-frame full dev:
+    - clip accuracy `L8 = 73.9%`
+    - relative accuracy `L8 = 97.8%`
+  - 64-frame full dev:
+    - clip accuracy `L8 = 71.7%`
+    - relative accuracy `L8 = 100%`
 
 ## Results Directory
 
