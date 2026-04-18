@@ -1,9 +1,8 @@
-"""Step 2: Extract Figure 2(c) features from V-JEPA v2-L.
+"""Step 2: Extract features from frozen V-JEPA 2 backbones.
 
-This rewrite keeps only the pieces needed for the paper-faithful Figure 2(c)
-reproduction:
+This rewrite keeps only the pieces needed for PEZ reproduction:
 
-- V-JEPA v2-L only
+- V-JEPA 2 Large / Huge / Giant
 - 16-frame 256x256 clips
 - residual stream capture at every layer
 - mean-pooling over space-time tokens
@@ -39,6 +38,7 @@ from constants import (
     IMAGENET_MEAN,
     IMAGENET_STD,
     N_FRAMES,
+    VJEPA2_MODEL_SPECS,
     VJEPA2_INPUT_SIZE,
     VJEPA2_ROOT,
     VJEPA2_SRC,
@@ -47,11 +47,6 @@ from constants import (
 sys.path.insert(0, VJEPA2_ROOT)
 sys.path.insert(0, VJEPA2_SRC)
 
-
-MODEL_NAME = "vjepa2_L"
-EMBED_DIM = 1024
-DEPTH = 24
-CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "vitl.pt")
 TEMPORAL_TOKENS = N_FRAMES // 2
 SPATIAL_GRID = VJEPA2_INPUT_SIZE // 16
 
@@ -59,14 +54,13 @@ SPATIAL_GRID = VJEPA2_INPUT_SIZE // 16
 def forward_resid_pre(self, x, masks=None):
     """Capture paper-style residual stream before each transformer block.
 
-    For V-JEPA v2-L this yields 24 representations:
+    This yields `depth` representations:
       layer_00 = patch_embed output (before block 0)
       layer_01 = post-block 0 = pre-block 1
       ...
-      layer_23 = post-block 22 = pre-block 23
+      layer_{depth-1} = post-block {depth-2} = pre-block {depth-1}
 
-    This matches the paper's layer count (0..n-1) and keeps layer 0 as the
-    representation before any attention block.
+    This keeps layer 0 as the representation before any attention block.
     """
     if masks is not None and not isinstance(masks, list):
         masks = [masks]
@@ -106,8 +100,7 @@ def forward_resid_pre(self, x, masks=None):
             H_patches=h_patches,
             W_patches=w_patches,
         )
-        if block_index + 1 < DEPTH:
-            outs.append(x.clone())
+        outs.append(x.clone())
 
     return outs
 
@@ -179,15 +172,25 @@ def build_transform(transform_name: str):
     )
 
 
-def load_model(device: str, capture: str):
+def resolve_model_spec(model: str):
+    if model not in VJEPA2_MODEL_SPECS:
+        raise ValueError(f"Unknown model: {model}")
+    spec = dict(VJEPA2_MODEL_SPECS[model])
+    spec["checkpoint_path"] = os.path.join(CHECKPOINT_DIR, spec["checkpoint"])
+    return spec
+
+
+def load_model(device: str, capture: str, model_name: str = "large"):
     import models.vision_transformer as vit_module
 
-    model = vit_module.vit_large(
+    spec = resolve_model_spec(model_name)
+    vit_factory = getattr(vit_module, spec["factory"])
+    model = vit_factory(
         patch_size=16,
         img_size=(VJEPA2_INPUT_SIZE, VJEPA2_INPUT_SIZE),
         num_frames=64,
         tubelet_size=2,
-        out_layers=list(range(DEPTH)),
+        out_layers=list(range(spec["depth"])),
         use_sdpa=True,
         use_silu=False,
         wide_silu=True,
@@ -195,7 +198,7 @@ def load_model(device: str, capture: str):
         use_rope=True,
     )
 
-    checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=True)
+    checkpoint = torch.load(spec["checkpoint_path"], map_location="cpu", weights_only=True)
     state = checkpoint.get("target_encoder", checkpoint)
     cleaned = {
         key.replace("module.", "").replace("backbone.", ""): value
@@ -210,7 +213,7 @@ def load_model(device: str, capture: str):
     else:
         raise ValueError(f"Unknown capture: {capture}")
 
-    return model.to(device).eval()
+    return model.to(device).eval(), spec
 
 
 def list_video_dirs(dataset_name: str):
@@ -256,14 +259,14 @@ def pool_tokens(layer_tokens: torch.Tensor, pooling: str):
     raise ValueError(f"Unknown pooling: {pooling}")
 
 
-def extract_dataset(model, video_dirs, transform, batch_size: int, device: str, pooling: str):
+def extract_dataset(model, video_dirs, transform, batch_size: int, device: str, pooling: str, depth: int, embed_dim: int):
     if pooling.endswith("_patch"):
         features = [
-            np.zeros((len(video_dirs), SPATIAL_GRID * SPATIAL_GRID, EMBED_DIM), dtype=np.float32)
-            for _ in range(DEPTH)
+            np.zeros((len(video_dirs), SPATIAL_GRID * SPATIAL_GRID, embed_dim), dtype=np.float32)
+            for _ in range(depth)
         ]
     else:
-        features = [np.zeros((len(video_dirs), EMBED_DIM), dtype=np.float32) for _ in range(DEPTH)]
+        features = [np.zeros((len(video_dirs), embed_dim), dtype=np.float32) for _ in range(depth)]
 
     for start in tqdm(range(0, len(video_dirs), batch_size), desc="extract"):
         end = min(start + batch_size, len(video_dirs))
@@ -282,8 +285,8 @@ def extract_dataset(model, video_dirs, transform, batch_size: int, device: str, 
     return features
 
 
-def save_branch(output_root: str, dataset_name: str, features):
-    dataset_root = Path(output_root) / MODEL_NAME / dataset_name
+def save_branch(output_root: str, repo_name: str, dataset_name: str, features):
+    dataset_root = Path(output_root) / repo_name / dataset_name
     dataset_root.mkdir(parents=True, exist_ok=True)
     for layer_index, array in enumerate(features):
         np.save(dataset_root / f"layer_{layer_index:02d}.npy", array)
@@ -296,6 +299,7 @@ def default_output_root(capture: str, transform_name: str, pooling: str):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--model", choices=sorted(VJEPA2_MODEL_SPECS.keys()), default="large")
     parser.add_argument("--capture", choices=["resid_pre", "resid_post"], default="resid_pre")
     parser.add_argument("--transform", choices=["resize", "eval_preproc"], default="resize")
     parser.add_argument(
@@ -325,11 +329,11 @@ def main():
         return
 
     transform = build_transform(args.transform)
-    model = load_model(args.device, args.capture)
+    model, spec = load_model(args.device, args.capture, model_name=args.model)
 
     start_time = time.time()
     for dataset_name in ("velocity", "acceleration"):
-        print(f"[{dataset_name}] capture={args.capture} transform={args.transform}")
+        print(f"[{dataset_name}] model={args.model} capture={args.capture} transform={args.transform}")
         video_dirs = list_video_dirs(dataset_name)
         features = extract_dataset(
             model=model,
@@ -338,19 +342,22 @@ def main():
             batch_size=args.batch_size,
             device=args.device,
             pooling=args.pooling,
+            depth=spec["depth"],
+            embed_dim=spec["embed_dim"],
         )
-        save_branch(output_root, dataset_name, features)
+        save_branch(output_root, spec["repo_name"], dataset_name, features)
 
     metadata = {
-        "model": MODEL_NAME,
+        "model": spec["repo_name"],
+        "model_key": args.model,
         "capture": args.capture,
         "transform": args.transform,
         "pooling": args.pooling,
         "input_size": VJEPA2_INPUT_SIZE,
-        "n_layers": DEPTH,
-        "embed_dim": EMBED_DIM,
+        "n_layers": spec["depth"],
+        "embed_dim": spec["embed_dim"],
         "n_frames": N_FRAMES,
-        "checkpoint": CHECKPOINT_PATH,
+        "checkpoint": spec["checkpoint_path"],
         "elapsed_sec": time.time() - start_time,
     }
     metadata_path.write_text(json.dumps(metadata, indent=2))

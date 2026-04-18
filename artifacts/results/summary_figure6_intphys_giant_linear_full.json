@@ -1,0 +1,11 @@
+{
+  "l0_acc": 0.5138888888888888,
+  "l8_acc": 0.6,
+  "peak_acc": 0.788888888888889,
+  "peak_layer": 37,
+  "first_ge_85_layer": null,
+  "late_acc": 0.7444444444444445,
+  "l0_relative_acc": 0.7,
+  "l8_relative_acc": 0.8111111111111111,
+  "peak_relative_acc": 1.0
+}

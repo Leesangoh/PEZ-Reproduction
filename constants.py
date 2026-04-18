@@ -38,6 +38,30 @@ IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 VJEPA2_INPUT_SIZE = 256  # Matches local V-JEPA 2 pretrain/checkpoint family (256px)
 
+VJEPA2_MODEL_SPECS = {
+    "large": {
+        "repo_name": "vjepa2_L",
+        "checkpoint": "vitl.pt",
+        "factory": "vit_large",
+        "embed_dim": 1024,
+        "depth": 24,
+    },
+    "huge": {
+        "repo_name": "vjepa2_H",
+        "checkpoint": "vith.pt",
+        "factory": "vit_huge",
+        "embed_dim": 1280,
+        "depth": 32,
+    },
+    "giant": {
+        "repo_name": "vjepa2_G",
+        "checkpoint": "vitg.pt",
+        "factory": "vit_giant_xformers",
+        "embed_dim": 1408,
+        "depth": 40,
+    },
+}
+
 
 def get_start_positions():
     """Generate 7 start positions with seed 42, uniform in [-2, 2]^2."""

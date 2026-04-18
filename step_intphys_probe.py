@@ -3,7 +3,7 @@
 This is an approximate reproduction path using the public IntPhys dev split:
 
 - data: IntPhys dev split (public, labeled)
-- model: V-JEPA v2-L only
+- model: V-JEPA 2 Large / Huge / Giant
 - features: spatiotemporally mean-pooled residual stream
 - task: binary possible/impossible classification
 - split: 5-fold GroupKFold grouped by matched scene quadruplet
@@ -33,16 +33,14 @@ import torch
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import GroupKFold
 
-from step2_extract import build_transform, load_model
+from step2_extract import build_transform, load_model, resolve_model_spec
 
 
 INTPHYS_ROOT = Path("/home/solee/pez/artifacts/intphys/dev")
 INTPHYS_STARTING_KIT = Path("/home/solee/pez/artifacts/intphys/starting_kit.zip")
-FEATURE_ROOT_DEFAULT = Path("/home/solee/pez/artifacts/features/intphys_resid_pre_resize")
+FEATURE_ROOT_BASE = Path("/home/solee/pez/artifacts/features")
 RESULTS_ROOT = Path("/home/solee/pez/artifacts/results")
 
-DEPTH = 24
-EMBED_DIM = 1024
 DEFAULT_N_FRAMES_SAMPLE = 16
 CV_SPLITS = 5
 CV_RANDOM_SEED = 42
@@ -120,6 +118,7 @@ def extract_features(
     feature_root: Path,
     max_scenes_per_block: int | None,
     n_frames_sample: int,
+    model_name: str,
 ):
     feature_root.mkdir(parents=True, exist_ok=True)
     metadata_path = feature_root / "metadata.json"
@@ -127,9 +126,9 @@ def extract_features(
 
     df = load_dev_reference(max_scenes_per_block=max_scenes_per_block)
     transform = build_transform(transform_name)
-    model = load_model(device=device, capture=capture)
+    model, spec = load_model(device=device, capture=capture, model_name=model_name)
 
-    features = [np.zeros((len(df), EMBED_DIM), dtype=np.float32) for _ in range(DEPTH)]
+    features = [np.zeros((len(df), spec["embed_dim"]), dtype=np.float32) for _ in range(spec["depth"])]
 
     for start in range(0, len(df), batch_size):
         end = min(start + batch_size, len(df))
@@ -153,10 +152,12 @@ def extract_features(
 
     df.to_csv(manifest_path, index=False)
     metadata = {
+        "model": spec["repo_name"],
+        "model_key": model_name,
         "capture": capture,
         "transform": transform_name,
-        "n_layers": DEPTH,
-        "embed_dim": EMBED_DIM,
+        "n_layers": spec["depth"],
+        "embed_dim": spec["embed_dim"],
         "n_clips": len(df),
         "n_frames_sample": n_frames_sample,
     }
@@ -320,14 +321,14 @@ def fit_binary_probe_batched(
     return results
 
 
-def evaluate_layers(feature_root: Path, df: pd.DataFrame, device: str, selection_metric: str):
+def evaluate_layers(feature_root: Path, df: pd.DataFrame, device: str, selection_metric: str, depth: int):
     groups = df["scene_group"].to_numpy()
     labels = df["label"].to_numpy(dtype=np.int64)
     movie_ids = df["movie_id"].to_numpy()
     splitter = GroupKFold(n_splits=min(CV_SPLITS, int(np.unique(groups).size)))
 
     rows = []
-    for layer in range(DEPTH):
+    for layer in range(depth):
         X = np.load(feature_root / f"layer_{layer:02d}.npy")
         fold_accs = []
         fold_aucs = []
@@ -374,15 +375,17 @@ def evaluate_layers(feature_root: Path, df: pd.DataFrame, device: str, selection
     return pd.DataFrame(rows)
 
 
-def plot_curve(df: pd.DataFrame, output_png: Path):
-    x = df["layer"].to_numpy() / (DEPTH - 1)
+def plot_curve(df: pd.DataFrame, output_png: Path, depth: int):
+    x = df["layer"].to_numpy() / (depth - 1)
     y = df["accuracy_mean"].to_numpy() * 100.0
     yerr = df["accuracy_std"].to_numpy() * 100.0
 
     plt.figure(figsize=(7, 4.5))
     plt.plot(x, y, color="#1f77b4", linewidth=2, label="IntPhys linear probe")
     plt.fill_between(x, y - yerr, y + yerr, color="#1f77b4", alpha=0.2)
-    plt.axvspan(8 / DEPTH, 9 / DEPTH, color="gray", alpha=0.2, label="Layer 8 PEZ marker")
+    pez_left = 8 / depth
+    pez_right = min(9, depth - 1) / (depth - 1)
+    plt.axvspan(pez_left, pez_right, color="gray", alpha=0.2, label="Layer 8 PEZ marker")
     plt.xlabel("Layer Fraction")
     plt.ylabel("Validation Accuracy (%)")
     plt.title("IntPhys Possible/Impossible Probe")
@@ -394,19 +397,20 @@ def plot_curve(df: pd.DataFrame, output_png: Path):
     plt.close()
 
 
-def summarize(df: pd.DataFrame) -> dict:
+def summarize(df: pd.DataFrame, depth: int) -> dict:
     acc = df["accuracy_mean"].to_numpy()
     peak_layer = int(df.loc[df["accuracy_mean"].idxmax(), "layer"])
     ge85 = np.where(acc >= 0.85)[0]
+    l8_index = min(8, depth - 1)
     return {
         "l0_acc": float(acc[0]),
-        "l8_acc": float(acc[8]),
+        "l8_acc": float(acc[l8_index]),
         "peak_acc": float(acc.max()),
         "peak_layer": peak_layer,
         "first_ge_85_layer": None if len(ge85) == 0 else int(ge85[0]),
         "late_acc": float(acc[-1]),
         "l0_relative_acc": float(df["relative_accuracy_mean"].to_numpy()[0]),
-        "l8_relative_acc": float(df["relative_accuracy_mean"].to_numpy()[8]),
+        "l8_relative_acc": float(df["relative_accuracy_mean"].to_numpy()[l8_index]),
         "peak_relative_acc": float(df["relative_accuracy_mean"].to_numpy().max()),
     }
 
@@ -414,10 +418,11 @@ def summarize(df: pd.DataFrame) -> dict:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--model", choices=["large", "huge", "giant"], default="large")
     parser.add_argument("--capture", choices=["resid_pre", "resid_post"], default="resid_pre")
     parser.add_argument("--transform", choices=["resize", "eval_preproc"], default="resize")
     parser.add_argument("--batch-size", type=int, default=8)
-    parser.add_argument("--feature-root", default=str(FEATURE_ROOT_DEFAULT))
+    parser.add_argument("--feature-root", default=None)
     parser.add_argument("--reuse-features", action="store_true")
     parser.add_argument("--max-scenes-per-block", type=int, default=None)
     parser.add_argument("--run-name", default="intphys_possible_impossible")
@@ -425,7 +430,11 @@ def main():
     parser.add_argument("--selection-metric", choices=["accuracy", "relative_accuracy"], default="accuracy")
     args = parser.parse_args()
 
-    feature_root = Path(args.feature_root)
+    spec = resolve_model_spec(args.model)
+    if args.feature_root is None:
+        feature_root = FEATURE_ROOT_BASE / f"intphys_{spec['repo_name']}_{args.capture}_{args.transform}"
+    else:
+        feature_root = Path(args.feature_root)
     results_csv = RESULTS_ROOT / f"results_{args.run_name}.csv"
     results_png = RESULTS_ROOT / f"figure_{args.run_name}.png"
     summary_json = RESULTS_ROOT / f"summary_{args.run_name}.json"
@@ -441,6 +450,7 @@ def main():
             feature_root=feature_root,
             max_scenes_per_block=args.max_scenes_per_block,
             n_frames_sample=args.n_frames_sample,
+            model_name=args.model,
         )
 
     result_df = evaluate_layers(
@@ -448,10 +458,11 @@ def main():
         df=df,
         device=args.device,
         selection_metric=args.selection_metric,
+        depth=spec["depth"],
     )
     result_df.to_csv(results_csv, index=False)
-    plot_curve(result_df, results_png)
-    summary = summarize(result_df)
+    plot_curve(result_df, results_png, depth=spec["depth"])
+    summary = summarize(result_df, depth=spec["depth"])
     summary_json.write_text(json.dumps(summary, indent=2))
     print(json.dumps(summary, indent=2))
 
