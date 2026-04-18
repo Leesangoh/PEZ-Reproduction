@@ -346,6 +346,19 @@ def fit_probe(X_train, y_train, X_val, y_val, alpha):
     return compute_r2(y_val, pred_val)
 
 
+def normalize_train_val(train, val, mode: str):
+    mean = train.mean(axis=0, keepdims=True)
+    if mode == "none":
+        return train, val, np.zeros_like(mean), np.ones_like(mean)
+    if mode == "center":
+        return train - mean, val - mean, mean, np.ones_like(mean)
+    if mode == "zscore":
+        std = train.std(axis=0, keepdims=True)
+        std[std < 1e-6] = 1.0
+        return (train - mean) / std, (val - mean) / std, mean, std
+    raise ValueError(f"Unknown norm mode: {mode}")
+
+
 def fit_trainable_probe_single(
     X_train,
     y_train,
@@ -357,6 +370,7 @@ def fit_trainable_probe_single(
     device,
     max_epochs,
     patience_limit,
+    norm_mode="zscore",
 ):
     X_train = np.asarray(X_train, dtype=np.float32)
     X_val = np.asarray(X_val, dtype=np.float32)
@@ -367,17 +381,8 @@ def fit_trainable_probe_single(
         y_train = y_train[:, None]
         y_val = y_val[:, None]
 
-    x_mean = X_train.mean(axis=0, keepdims=True)
-    x_std = X_train.std(axis=0, keepdims=True)
-    x_std[x_std < 1e-6] = 1.0
-    X_train_std = (X_train - x_mean) / x_std
-    X_val_std = (X_val - x_mean) / x_std
-
-    y_mean = y_train.mean(axis=0, keepdims=True)
-    y_std = y_train.std(axis=0, keepdims=True)
-    y_std[y_std < 1e-6] = 1.0
-    y_train_std = (y_train - y_mean) / y_std
-    y_val_std = (y_val - y_mean) / y_std
+    X_train_std, X_val_std, _, _ = normalize_train_val(X_train, X_val, norm_mode)
+    y_train_std, y_val_std, y_mean, y_std = normalize_train_val(y_train, y_val, norm_mode)
 
     X_tr = torch.tensor(X_train_std, dtype=torch.float32, device=device)
     X_va = torch.tensor(X_val_std, dtype=torch.float32, device=device)
@@ -437,6 +442,7 @@ def fit_trainable_probe_batched(
     device,
     max_epochs=MAX_EPOCHS,
     patience_limit=PATIENCE,
+    norm_mode="zscore",
 ):
     configs = list(itertools.product(lr_grid, wd_grid))
     n_configs = len(configs)
@@ -450,17 +456,8 @@ def fit_trainable_probe_batched(
         y_train = y_train[:, None]
         y_val = y_val[:, None]
 
-    x_mean = X_train.mean(axis=0, keepdims=True)
-    x_std = X_train.std(axis=0, keepdims=True)
-    x_std[x_std < 1e-6] = 1.0
-    X_train_std = (X_train - x_mean) / x_std
-    X_val_std = (X_val - x_mean) / x_std
-
-    y_mean = y_train.mean(axis=0, keepdims=True)
-    y_std = y_train.std(axis=0, keepdims=True)
-    y_std[y_std < 1e-6] = 1.0
-    y_train_std = (y_train - y_mean) / y_std
-    y_val_std = (y_val - y_mean) / y_std
+    X_train_std, X_val_std, _, _ = normalize_train_val(X_train, X_val, norm_mode)
+    y_train_std, y_val_std, y_mean, y_std = normalize_train_val(y_train, y_val, norm_mode)
 
     X_tr = torch.tensor(X_train_std, dtype=torch.float32, device=device)
     X_va = torch.tensor(X_val_std, dtype=torch.float32, device=device)
@@ -548,7 +545,7 @@ def fit_trainable_probe_batched(
     return results
 
 
-def evaluate_layer(features, targets, groups, output_dim, device, solver):
+def evaluate_layer(features, targets, groups, output_dim, device, solver, norm_mode):
     splitter = GroupKFold(n_splits=min(CV_SPLITS, int(np.unique(groups).size)))
     fold_scores = []
     fold_best_lrs = []
@@ -565,6 +562,7 @@ def evaluate_layer(features, targets, groups, output_dim, device, solver):
                 lr_grid=LR_GRID,
                 wd_grid=WD_GRID,
                 device=device,
+                norm_mode=norm_mode,
             )
             best_lr, best_wd, best_r2 = max(cfg_results, key=lambda item: item[2])
             fold_scores.append(best_r2)
@@ -582,6 +580,7 @@ def evaluate_layer(features, targets, groups, output_dim, device, solver):
                 device=device,
                 max_epochs=ADAMW100_EPOCHS,
                 patience_limit=ADAMW100_PATIENCE,
+                norm_mode=norm_mode,
             )
             fold_scores.append(score)
             fold_best_lrs.append(ADAMW100_LR)
@@ -645,6 +644,7 @@ def run_single_config(args):
                 output_dim=spec["output_dim"],
                 device=args.device,
                 solver=args.solver,
+                norm_mode=args.norm_mode,
             )
             row = {
                 "run_name": args.run_name,
@@ -661,6 +661,7 @@ def run_single_config(args):
                 "preprocessing": args.preprocessing,
                 "solver": args.solver,
                 "probe_set": args.probe_set,
+                "norm_mode": args.norm_mode,
                 "feature_root": args.feature_root,
             }
             rows.append(row)
@@ -682,6 +683,7 @@ def run_single_config(args):
         "preprocessing": args.preprocessing,
         "solver": args.solver,
         "probe_set": args.probe_set,
+        "norm_mode": args.norm_mode,
         "cv_splits": CV_SPLITS,
         "model": MODEL_NAME,
         "n_layers": DEPTH,
@@ -927,6 +929,7 @@ def main():
         default="fig2c",
     )
     run_parser.add_argument("--solver", choices=["trainable", "adamw100", "ridge"], default="trainable")
+    run_parser.add_argument("--norm-mode", choices=["zscore", "center", "none"], default="zscore")
     run_parser.add_argument(
         "--grouping",
         choices=[

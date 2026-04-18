@@ -262,3 +262,175 @@ Interpretation:
 
 - A hidden pooling/detail mismatch is now the leading explanation.
 - `resid_post + temporal_last` improves Figure 2(b) substantially while keeping Figure 2(c) consistent with the PEZ story.
+
+### Iteration 12
+
+- Hypothesis: `temporal_last` may only work under `resid_post`; switching back to `resid_pre` while keeping the same pooling could delay Cartesian decoding toward the paper.
+- What changed:
+  - extracted:
+    - `artifacts/features/resid_pre_resize_temporal_last`
+  - ran:
+    - `fig2b_iter12_velocity_residpre_tlast_magnitude`
+    - `fig2b_iter12_accel_residpre_tlast_magnitude`
+- Result:
+  - velocity_xy:
+    - `L0=-0.011`, `L8=0.893`, peak `L23=0.978`, `first>=0.8 @ L7`
+  - acceleration_xy:
+    - `L0=-0.393`, `L8=0.707`, peak `L21=0.954`, `first>=0.8 @ L9`
+- Diff from paper:
+  - this is too conservative.
+  - onset shifts later, but early scalar availability collapses and overall absolute values are too low.
+- Next experiment:
+  - keep `resid_post + temporal_last`, but tune the probe normalization instead of the capture branch.
+
+### Iteration 13
+
+- Hypothesis: the remaining Figure 2(c) gap may come from an overly strong trainable probe; `adamw100` on top of the current best temporal-last branch might increase the late decline while preserving the `L8` direction onset.
+- What changed:
+  - ran:
+    - `fig2c_iter13_residpost_tlast_dirsector_angle_adamw100`
+- Result:
+  - speed:
+    - `L0=0.865`, `L8=0.946`, peak `L14=0.956`
+  - direction:
+    - `L0=0.276`, `L8=0.705`, peak `L19=0.711`, never reaches `0.8`
+  - acceleration:
+    - `L0=0.838`, `L8=0.940`, peak `L15=0.949`
+- Diff from paper:
+  - the late decline is a bit stronger, but the core PEZ threshold is lost.
+  - this weak-probe variant is not acceptable for Figure 2(c).
+- Next experiment:
+  - keep the trainable solver and modify only feature normalization.
+
+### Iteration 14
+
+- Hypothesis: full z-score standardization may over-amplify shallow direction signal; using mean-centering only (`norm_mode=center`) could preserve `L8` onset while slightly increasing the late decline.
+- What changed:
+  - added `--norm-mode {zscore,center,none}` to `step3_probe.py`
+  - ran:
+    - `fig2c_iter14_residpost_tlast_dirsector_angle_center`
+- Result:
+  - speed:
+    - `L0=0.820`, `L8=0.983`, peak `L16=0.987`
+  - direction:
+    - `L0=0.294`, `L8=0.800`, peak `L21=0.872`, late `L23=0.829`, drop `0.043`
+  - acceleration:
+    - `L0=0.814`, `L8=0.974`, peak `L20=0.984`
+- Diff from paper:
+  - direction still crosses the PEZ threshold at `L8` and the late decline is slightly cleaner.
+  - however, speed/acceleration early magnitude becomes a little too low relative to the previous best.
+- Next experiment:
+  - attack the remaining Figure 2(b) velocity `L0` gap directly with split/normalization changes on the existing temporal-last features.
+
+### Iteration 15
+
+- Hypothesis: making the Cartesian split harder with a joint magnitude-and-sector holdout may lower shallow `velocity_xy` decoding without regenerating features.
+- What changed:
+  - ran:
+    - `fig2b_iter15_velocity_residpost_tlast_magsector`
+    - `fig2b_iter15_accel_residpost_tlast_magsector`
+- Result:
+  - velocity_xy:
+    - `L0=0.561`, `L8=0.943`, peak `L22=0.977`, `first>=0.8 @ L6`
+  - acceleration_xy:
+    - `L0=0.573`, `L8=0.969`, peak `L19=0.983`, `first>=0.8 @ L5`
+- Diff from paper:
+  - velocity improves slightly, but acceleration becomes even more early-decodable.
+  - the joint holdout is too aggressive in the wrong direction.
+- Next experiment:
+  - keep the simpler magnitude split and apply only probe centering.
+
+### Iteration 16
+
+- Hypothesis: the remaining high `velocity_xy` baseline may come from target z-scoring; using `norm_mode=center` on the best temporal-last Cartesian setup may lower `L0` while preserving the `L8` acceleration transition.
+- What changed:
+  - ran:
+    - `fig2b_iter16_velocity_residpost_tlast_magnitude_center`
+    - `fig2b_iter16_accel_residpost_tlast_magnitude_center`
+- Result:
+  - velocity_xy:
+    - `L0=0.553`, `L8=0.962`, peak `L23=0.978`, `first>=0.8 @ L6`
+  - acceleration_xy:
+    - `L0=0.454`, `L8=0.915`, peak `L21=0.944`, `first>=0.8 @ L8`
+- Diff from paper:
+  - this is the best balanced Cartesian pair so far:
+    - velocity early magnitude comes down
+    - acceleration keeps the `L8` transition
+  - velocity `L0` is still slightly above the target range.
+- Next experiment:
+  - test whether removing normalization entirely helps Figure 2(c) direction decline.
+
+### Iteration 17
+
+- Hypothesis: full standardization may itself create too much shallow direction signal; removing normalization (`norm_mode=none`) might produce a cleaner PEZ transition and stronger late decline in Figure 2(c).
+- What changed:
+  - ran:
+    - `fig2c_iter17_residpost_tlast_dirsector_angle_none`
+- Result:
+  - speed:
+    - `L0=0.733`, `L8=0.970`, peak `L19=0.982`
+  - direction:
+    - `L0=0.030`, `L8=0.612`, peak `L22=0.775`, never reaches `0.8`
+  - acceleration:
+    - `L0=0.700`, `L8=0.925`, peak `L15=0.955`, late `L23=0.882`
+- Diff from paper:
+  - shallow direction is strongly suppressed, but the PEZ onset is now too weak and too late.
+  - this confirms that some standardization is necessary for the paper-like direction curve.
+- Next experiment:
+  - try a different temporal pooling branch for Cartesian velocity only.
+
+### Iteration 18
+
+- Hypothesis: using the first temporal slice instead of the last may lower the shallow `velocity_xy` baseline while keeping the `L8` acceleration transition.
+- What changed:
+  - extracted:
+    - `artifacts/features/resid_post_resize_temporal_first`
+  - ran:
+    - `fig2b_iter18_velocity_residpost_tfirst_magnitude`
+    - `fig2b_iter18_accel_residpost_tfirst_magnitude`
+- Result:
+  - velocity_xy:
+    - `L0=0.571`, `L8=0.971`, peak `L21=0.984`, `first>=0.8 @ L4`
+  - acceleration_xy:
+    - `L0=0.456`, `L8=0.833`, peak `L17=0.959`, `first>=0.8 @ L8`
+- Diff from paper:
+  - velocity remains too early and too strong.
+  - acceleration still transitions at `L8`, but absolute shape is not better than `iter16`.
+- Next experiment:
+  - combine the two mildly helpful knobs for velocity: `magnitude_spatial_sector` and `center`.
+
+### Iteration 19
+
+- Hypothesis: the best path for Figure 2(b) velocity may require a probe-specific recipe; combining `magnitude_spatial_sector` with `norm_mode=center` could pull `velocity_xy L0` into the paper range while leaving acceleration to a different best config.
+- What changed:
+  - ran:
+    - `fig2b_iter19_velocity_residpost_tlast_magsector_center`
+    - `fig2b_iter19_accel_residpost_tlast_magsector_center`
+- Result:
+  - velocity_xy:
+    - `L0=0.505`, `L8=0.942`, peak `L22=0.977`, `first>=0.8 @ L6`
+  - acceleration_xy:
+    - `L0=0.555`, `L8=0.970`, peak `L19=0.983`, `first>=0.8 @ L5`
+- Diff from paper:
+  - this is the strongest velocity-only match so far, bringing `L0` to the upper edge of the desired paper range.
+  - acceleration gets worse again, so Figure 2(b) is now clearly a per-probe best-combination problem.
+
+### Current Best After Iteration 19
+
+- Figure 2(c):
+  - `fig2c_iter11_residpost_tlast_dirsector_angle`
+  - `fig2c_iter14_residpost_tlast_dirsector_angle_center` is a viable alternate, but not a clear overall win.
+- Figure 2(b):
+  - velocity_xy:
+    - `fig2b_iter19_velocity_residpost_tlast_magsector_center`
+  - acceleration_xy:
+    - `fig2b_iter16_accel_residpost_tlast_magnitude_center`
+
+Interpretation:
+
+- The remaining gap is no longer dominated by a single global setting.
+- Figure 2(c) prefers:
+  - `resid_post + temporal_last + direction_spatial_sector + angle`
+- Figure 2(b) prefers probe-specific settings:
+  - velocity likes a harder split plus centered targets
+  - acceleration likes the simpler magnitude split plus centered targets
