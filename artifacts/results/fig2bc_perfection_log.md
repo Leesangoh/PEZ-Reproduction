@@ -475,3 +475,77 @@ Interpretation:
   - onset stays too early, so `temporal_diff` is not the missing detail for Figure 2(b) either.
 - Next experiment:
   - move from pooled clip vectors to patch-level probing, closer to the Appendix C.5 analysis.
+
+### Iteration 22
+
+- Hypothesis: a patch-level probe that averages predictions back to the clip level may better match the Appendix C.5 local-to-global story and recover a cleaner Layer-8 transition.
+- What changed:
+  - added patch-preserving pooling modes to `step2_extract.py`:
+    - `temporal_last_patch`
+    - `temporal_diff_patch`
+  - added patch-level probe support to `step3_probe.py`
+  - extracted:
+    - `artifacts/features/resid_post_resize_temporal_last_patch`
+- Result:
+  - the full trainable Figure 2(c) patch-level run was started but not selected for the final report.
+  - the completed ridge proxy is more informative and is recorded in Iteration 24.
+- Diff from paper:
+  - patch-level probing is a promising direction for Cartesian velocity onset, but not a clean win for the full Figure 2(c) panel.
+- Next experiment:
+  - test patch-level Cartesian probes first, then compare with a ridge proxy for fast readout.
+
+### Iteration 23
+
+- Hypothesis: patch-level trainable probes may delay Cartesian decoding enough to restore the Figure 2(b) Layer-8 transition, especially for `velocity_xy`.
+- What changed:
+  - ran:
+    - `fig2b_iter23_velocity_residpost_tlastpatch_magsector_center`
+    - `fig2b_iter23_accel_residpost_tlastpatch_magnitude_center`
+- Result:
+  - velocity_xy:
+    - `L0=0.527`, `L8=0.908`, peak `L12=0.926`, `first>=0.8 @ L8`
+  - acceleration_xy:
+    - `L0=0.494`, `L8=0.776`, peak `L16=0.861`, `first>=0.8 @ L11`
+- Diff from paper:
+  - this is the best current velocity-only match for a true Layer-8 transition.
+  - however, patch-level training hurts acceleration too much, so it cannot be the unified Figure 2(b) recipe.
+- Next experiment:
+  - compare against patch-level ridge to separate optimization issues from representation issues.
+
+### Iteration 24
+
+- Hypothesis: if patch-level trainable is unstable, ridge on the same patch features should reveal whether the limitation is optimization or representation.
+- What changed:
+  - ran ridge proxies:
+    - `fig2b_iter24_velocity_residpost_tlastpatch_magsector_ridge`
+    - `fig2b_iter24_accel_residpost_tlastpatch_magnitude_ridge`
+    - `fig2c_iter24_residpost_tlastpatch_dirsector_angle_ridge`
+- Result:
+  - velocity_xy ridge:
+    - `L0=0.739`, `L8=0.912`, `first>=0.8 @ L8`
+  - acceleration_xy ridge:
+    - `L0=0.537`, `L8=0.805`, `first>=0.8 @ L8`
+  - polar ridge:
+    - `direction L0=0.382`, `L8=0.679`, never reaches `0.8`
+- Diff from paper:
+  - patch-level ridge confirms the trend:
+    - it can delay velocity onset,
+    - but it does not rescue acceleration or the polar direction curve.
+  - therefore patch-level probing is useful only as a variable-specific Cartesian tweak, not as a global final recipe.
+
+### Final Selection After Iteration 24
+
+- Figure 2(c):
+  - keep `fig2c_iter11_residpost_tlast_dirsector_angle`
+- Figure 2(b):
+  - velocity_xy:
+    - select `fig2b_iter23_velocity_residpost_tlastpatch_magsector_center`
+  - acceleration_xy:
+    - keep `fig2b_iter16_accel_residpost_tlast_magnitude_center`
+
+Interpretation:
+
+- `temporal_diff` is a clear dead end.
+- patch-level probing helps only one specific failure mode:
+  - delaying Cartesian velocity onset toward Layer 8
+- but it hurts acceleration and does not improve the polar direction curve enough to replace the current best.

@@ -1,5 +1,38 @@
 # PEZ Figure 2 Rewrite
 
+## Final Consolidation
+
+Final figures:
+
+- [figure2c_final.png](/home/solee/pez/artifacts/results/figure2c_final.png)
+- [figure2b_final.png](/home/solee/pez/artifacts/results/figure2b_final.png)
+- [figure_reproduction_summary.png](/home/solee/pez/artifacts/results/figure_reproduction_summary.png)
+
+Final report:
+
+- [final_reproduction_report.md](/home/solee/pez/artifacts/results/final_reproduction_report.md)
+
+Final declared outcome:
+
+- Figure 2(c): `yes`
+- Figure 2(b): `no`
+
+Final config matrix:
+
+| probe | selected run | capture | pooling | grouping | target | norm | solver |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `speed` | `fig2c_iter11_residpost_tlast_dirsector_angle` | `resid_post` | `temporal_last` | `direction_spatial_sector` | `angle` | `zscore` | `trainable` |
+| `direction` | `fig2c_iter11_residpost_tlast_dirsector_angle` | `resid_post` | `temporal_last` | `direction_spatial_sector` | `angle` | `zscore` | `trainable` |
+| `acceleration` | `fig2c_iter11_residpost_tlast_dirsector_angle` | `resid_post` | `temporal_last` | `direction_spatial_sector` | `angle` | `zscore` | `trainable` |
+| `velocity_xy` | `fig2b_iter23_velocity_residpost_tlastpatch_magsector_center` | `resid_post` | `temporal_last_patch` | `magnitude_spatial_sector` | `vxy` | `center` | `trainable` |
+| `acceleration_xy` | `fig2b_iter16_accel_residpost_tlast_magnitude_center` | `resid_post` | `temporal_last` | `magnitude` | `vxy` | `center` | `trainable` |
+
+Best-run links:
+
+- [results_fig2c_iter11_residpost_tlast_dirsector_angle.csv](/home/solee/pez/artifacts/results/results_fig2c_iter11_residpost_tlast_dirsector_angle.csv)
+- [results_fig2b_iter23_velocity_residpost_tlastpatch_magsector_center.csv](/home/solee/pez/artifacts/results/results_fig2b_iter23_velocity_residpost_tlastpatch_magsector_center.csv)
+- [results_fig2b_iter16_accel_residpost_tlast_magnitude_center.csv](/home/solee/pez/artifacts/results/results_fig2b_iter16_accel_residpost_tlast_magnitude_center.csv)
+
 This directory was rewritten around reproducing and stress-testing
 Figure 2 from [pez_paper.pdf](/home/solee/pez/pez_paper.pdf), with the main
 focus on:
