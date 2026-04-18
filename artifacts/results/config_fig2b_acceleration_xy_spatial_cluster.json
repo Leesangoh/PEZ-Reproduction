@@ -1,0 +1,26 @@
+{
+  "run_name": "fig2b_acceleration_xy_spatial_cluster",
+  "feature_root": "/home/solee/pez/artifacts/features/resid_pre_resize",
+  "grouping": "spatial_cluster",
+  "direction_target": "vxy",
+  "residual_capture": "resid_pre",
+  "preprocessing": "resize",
+  "solver": "trainable",
+  "probe_set": "fig2b_acceleration_xy",
+  "cv_splits": 5,
+  "model": "vjepa2_L",
+  "n_layers": 24,
+  "lr_grid": [
+    0.0001,
+    0.0003,
+    0.001,
+    0.003,
+    0.005
+  ],
+  "wd_grid": [
+    0.01,
+    0.1,
+    0.4,
+    0.8
+  ]
+}

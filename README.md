@@ -1,7 +1,11 @@
-# PEZ Figure 2(c) Rewrite
+# PEZ Figure 2 Rewrite
 
-This directory was rewritten around a single target: reproducing and stress-testing
-Figure 2(c) from [pez_paper.pdf](/home/solee/pez/pez_paper.pdf).
+This directory was rewritten around reproducing and stress-testing
+Figure 2 from [pez_paper.pdf](/home/solee/pez/pez_paper.pdf), with the main
+focus on:
+
+- Figure 2(c): polar
+- Figure 2(b): cartesian
 
 The old code and results were moved to:
 
@@ -16,7 +20,7 @@ The old code and results were moved to:
   - `resid_pre` vs `resid_post`
   - `resize` vs `eval_preproc`
 - [step3_probe.py](/home/solee/pez/step3_probe.py)
-  Linear probe runner for Figure 2(c) plus ablation summary generation.
+  Linear probe runner for Figure 2(c) and Figure 2(b), plus summary generation.
 
 ## Paper-Faithful Base
 
@@ -95,6 +99,37 @@ What the completed ablations say already:
   than `resid_pre`.
 - `direction grouping` strongly suppresses early direction decoding, but it also
   suppresses overall peak performance, so it does not look like the paper figure.
+
+## Figure 2(c) Verdict
+
+- [final_verdict.md](/home/solee/pez/artifacts/results/final_verdict.md)
+
+Current best Figure 2(c) result:
+
+- qualified reproduction achieved under:
+  - `resid_pre`
+  - true spatial holdout
+  - `angle` direction target
+
+## Figure 2(b) Cartesian
+
+Main outputs:
+
+- [fig2b_ablation_summary.csv](/home/solee/pez/artifacts/results/fig2b_ablation_summary.csv)
+- [fig2b_overlay.png](/home/solee/pez/artifacts/results/fig2b_overlay.png)
+- [final_verdict_fig2b.md](/home/solee/pez/artifacts/results/final_verdict_fig2b.md)
+
+Current best Cartesian runs:
+
+- [results_fig2b_velocity_xy_spatial_sector.csv](/home/solee/pez/artifacts/results/results_fig2b_velocity_xy_spatial_sector.csv)
+- [results_fig2b_acceleration_xy_spatial_sector.csv](/home/solee/pez/artifacts/results/results_fig2b_acceleration_xy_spatial_sector.csv)
+
+Cartesian summary:
+
+- `velocity_xy` is early-decodable, but not strongly from `L0`
+- `acceleration_xy` rises sharply, but too early (`first >= 0.8` at `L5`)
+- both variables peak in middle layers and weaken slightly toward the output
+- overall: partial qualitative match, not a full Figure 2(b) reproduction
 
 ## Results Directory
 

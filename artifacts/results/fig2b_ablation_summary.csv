@@ -1,0 +1,7 @@
+run_name,variable,grouping,residual_capture,preprocessing,solver,l0_r2,l8_r2,peak_r2,peak_layer,first_ge_0p8_layer,late_layer_r2
+fig2b_acceleration_xy_pixel_region,acceleration_xy,pixel_region,resid_pre,resize,trainable,-0.0564100838018202,0.9352196574636842,0.9770099505359362,13,5,0.9670362748533492
+fig2b_acceleration_xy_spatial_cluster,acceleration_xy,spatial_cluster,resid_pre,resize,trainable,-0.0714021253203802,0.9367094052466544,0.9793105797616184,13,5,0.9679028474839272
+fig2b_acceleration_xy_spatial_sector,acceleration_xy,spatial_sector,resid_pre,resize,trainable,-0.0699267499936675,0.939125936523717,0.979924451919418,12,5,0.971658692808065
+fig2b_velocity_xy_pixel_region,velocity_xy,pixel_region,resid_pre,resize,trainable,0.0850990354845653,0.9509596259924876,0.9864610535338956,12,3,0.96694577069533
+fig2b_velocity_xy_spatial_cluster,velocity_xy,spatial_cluster,resid_pre,resize,trainable,0.0480571254836974,0.9499087452447738,0.9857274902668186,12,3,0.9691892457255604
+fig2b_velocity_xy_spatial_sector,velocity_xy,spatial_sector,resid_pre,resize,trainable,0.0716976000107135,0.9536897140255676,0.9863848559589872,12,3,0.9685281413487375

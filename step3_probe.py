@@ -1,9 +1,15 @@
-"""Step 3: Paper-faithful Figure 2(c) probing + ablation summary.
+"""Step 3: Figure 2 probing for PEZ reproduction.
 
-This rewrite fixes the task scope to the paper's Figure 2(c):
+Primary support:
 
 - V-JEPA v2-L only
-- speed, direction, acceleration magnitude
+- Figure 2(c) polar:
+  - speed
+  - direction
+  - acceleration magnitude
+- Figure 2(b) cartesian:
+  - velocity_xy
+  - acceleration_xy
 - linear probe f(h) = Wh + b
 - 20-config trainable sweep (lr x wd)
 - 5-fold grouped cross-validation
@@ -59,6 +65,28 @@ ADAMW100_LR = 1e-3
 ADAMW100_WD = 0.1
 ADAMW100_EPOCHS = 100
 ADAMW100_PATIENCE = 10
+
+PROBE_SETS = {
+    "fig2c": ("speed", "direction", "acceleration"),
+    "fig2b_velocity_xy": ("velocity_xy",),
+    "fig2b_acceleration_xy": ("acceleration_xy",),
+}
+
+PLOT_LABELS = {
+    "speed": "Speed",
+    "direction": "Direction",
+    "acceleration": "Acceleration",
+    "velocity_xy": "Velocity XY",
+    "acceleration_xy": "Acceleration XY",
+}
+
+PLOT_COLORS = {
+    "speed": "#1f77b4",
+    "direction": "#d62728",
+    "acceleration": "#2ca02c",
+    "velocity_xy": "#1f77b4",
+    "acceleration_xy": "#2ca02c",
+}
 
 
 def load_targets(direction_target: str):
@@ -119,6 +147,34 @@ def load_targets(direction_target: str):
             "target": acceleration_df["accel_magnitude"].to_numpy(dtype=np.float32),
             "video_ids": acceleration_df["video_id"].tolist(),
             "output_dim": 1,
+            "pos_x_px": acceleration_df["pos_x_px"].to_numpy(dtype=np.float32),
+            "pos_y_px": acceleration_df["pos_y_px"].to_numpy(dtype=np.float32),
+        },
+        "velocity_xy": {
+            "dataset": "velocity",
+            "target": np.stack(
+                [
+                    velocity_df["vx_px"].to_numpy(dtype=np.float32),
+                    velocity_df["vy_px"].to_numpy(dtype=np.float32),
+                ],
+                axis=1,
+            ).astype(np.float32),
+            "video_ids": velocity_df["video_id"].tolist(),
+            "output_dim": 2,
+            "pos_x_px": velocity_df["pos_x_px"].to_numpy(dtype=np.float32),
+            "pos_y_px": velocity_df["pos_y_px"].to_numpy(dtype=np.float32),
+        },
+        "acceleration_xy": {
+            "dataset": "acceleration",
+            "target": np.stack(
+                [
+                    acceleration_df["ax_px"].to_numpy(dtype=np.float32),
+                    acceleration_df["ay_px"].to_numpy(dtype=np.float32),
+                ],
+                axis=1,
+            ).astype(np.float32),
+            "video_ids": acceleration_df["video_id"].tolist(),
+            "output_dim": 2,
             "pos_x_px": acceleration_df["pos_x_px"].to_numpy(dtype=np.float32),
             "pos_y_px": acceleration_df["pos_y_px"].to_numpy(dtype=np.float32),
         },
@@ -503,8 +559,9 @@ def run_single_config(args):
 
     targets = load_targets(args.direction_target)
     rows = []
+    variable_names = PROBE_SETS[args.probe_set]
 
-    for variable_name in ("speed", "direction", "acceleration"):
+    for variable_name in variable_names:
         spec = targets[variable_name]
         groups = build_groups(
             spec["video_ids"],
@@ -536,6 +593,7 @@ def run_single_config(args):
                 "residual_capture": args.residual_capture,
                 "preprocessing": args.preprocessing,
                 "solver": args.solver,
+                "probe_set": args.probe_set,
                 "feature_root": args.feature_root,
             }
             rows.append(row)
@@ -556,6 +614,7 @@ def run_single_config(args):
         "residual_capture": args.residual_capture,
         "preprocessing": args.preprocessing,
         "solver": args.solver,
+        "probe_set": args.probe_set,
         "cv_splits": CV_SPLITS,
         "model": MODEL_NAME,
         "n_layers": DEPTH,
@@ -569,22 +628,27 @@ def run_single_config(args):
 
 
 def plot_run(df: pd.DataFrame, output_png: str, title: str):
-    colors = {"speed": "#1f77b4", "direction": "#d62728", "acceleration": "#2ca02c"}
-    labels = {"speed": "Speed", "direction": "Direction", "acceleration": "Acceleration"}
-
     fig, ax = plt.subplots(figsize=(7, 4.8))
-    for variable_name in ("speed", "direction", "acceleration"):
+    for variable_name in df["variable"].unique():
         subset = df[df["variable"] == variable_name].sort_values("layer")
         x = subset["layer_fraction"].to_numpy()
         mean = subset["r2_mean"].to_numpy()
         std = subset["r2_std"].to_numpy()
-        ax.plot(x, mean, color=colors[variable_name], linewidth=2, label=labels[variable_name])
-        ax.fill_between(x, mean - std, mean + std, color=colors[variable_name], alpha=0.15)
+        ax.plot(
+            x,
+            mean,
+            color=PLOT_COLORS[variable_name],
+            linewidth=2,
+            label=PLOT_LABELS[variable_name],
+        )
+        ax.fill_between(x, mean - std, mean + std, color=PLOT_COLORS[variable_name], alpha=0.15)
 
     ax.axvline(8 / (DEPTH - 1), color="gray", linestyle="--", linewidth=1.2, label="Layer 8")
     ax.set_xlabel("Layer Fraction")
     ax.set_ylabel("Validation R$^2$")
-    ax.set_title(f"V-JEPA v2-L: Polar | {title}")
+    probe_set = df["probe_set"].iloc[0] if "probe_set" in df.columns else "fig2c"
+    title_prefix = "V-JEPA v2-L: Polar" if probe_set == "fig2c" else "V-JEPA v2-L: Cartesian"
+    ax.set_title(f"{title_prefix} | {title}")
     ax.set_xlim(0.0, 1.0)
     ax.set_ylim(min(-0.1, float(df["r2_mean"].min()) - 0.05), 1.05)
     ax.legend(loc="lower right", fontsize=9)
@@ -616,6 +680,8 @@ def summarize_runs(args):
 
     summary_rows = []
     for run_name, run_df in all_df.groupby("run_name"):
+        if "direction" not in set(run_df["variable"].unique()):
+            continue
         direction_df = run_df[run_df["variable"] == "direction"].sort_values("layer")
         direction_curve = direction_df["r2_mean"].to_numpy()
         peak_idx = int(direction_df.iloc[np.argmax(direction_curve)]["layer"])
@@ -629,6 +695,7 @@ def summarize_runs(args):
                 "residual_capture": direction_df["residual_capture"].iloc[0],
                 "preprocessing": direction_df["preprocessing"].iloc[0],
                 "solver": direction_df["solver"].iloc[0] if "solver" in direction_df.columns else "trainable",
+                "probe_set": direction_df["probe_set"].iloc[0] if "probe_set" in direction_df.columns else "fig2c",
                 "l0_direction_r2": float(direction_curve[0]),
                 "l1_l6_direction_mean": float(direction_curve[1:7].mean()),
                 "direction_first_ge_0p8_layer": first_08,
@@ -655,6 +722,88 @@ def summarize_runs(args):
     best_row = summary_df.iloc[0].to_dict()
     Path(os.path.join(RESULTS_ROOT, "best_config.json")).write_text(json.dumps(best_row, indent=2))
     print(json.dumps(best_row, indent=2))
+
+
+def summarize_fig2b_runs(args):
+    csv_paths = sorted(Path(RESULTS_ROOT).glob("results_fig2b_*.csv"))
+    if not csv_paths:
+        raise FileNotFoundError("No fig2b CSVs found under artifacts/results")
+
+    run_frames = [pd.read_csv(path) for path in csv_paths]
+    all_df = pd.concat(run_frames, ignore_index=True)
+    rows = []
+
+    for run_name, run_df in all_df.groupby("run_name"):
+        variable = run_df["variable"].iloc[0]
+        curve_df = run_df.sort_values("layer").reset_index(drop=True)
+        curve = curve_df["r2_mean"].to_numpy()
+        first_08 = first_ge_threshold(curve, 0.8)
+        peak_idx = int(curve_df.iloc[np.argmax(curve)]["layer"])
+        peak_val = float(np.max(curve))
+        rows.append(
+            {
+                "run_name": run_name,
+                "variable": variable,
+                "grouping": curve_df["grouping"].iloc[0],
+                "residual_capture": curve_df["residual_capture"].iloc[0],
+                "preprocessing": curve_df["preprocessing"].iloc[0],
+                "solver": curve_df["solver"].iloc[0] if "solver" in curve_df.columns else "trainable",
+                "l0_r2": float(curve_df[curve_df["layer"] == 0]["r2_mean"].iloc[0]),
+                "l8_r2": float(curve_df[curve_df["layer"] == 8]["r2_mean"].iloc[0]),
+                "peak_r2": peak_val,
+                "peak_layer": peak_idx,
+                "first_ge_0p8_layer": first_08,
+                "late_layer_r2": float(curve_df[curve_df["layer"] == 23]["r2_mean"].iloc[0]),
+            }
+        )
+
+    summary_df = pd.DataFrame(rows).sort_values(["variable", "grouping"]).reset_index(drop=True)
+    summary_path = os.path.join(RESULTS_ROOT, "fig2b_ablation_summary.csv")
+    summary_df.to_csv(summary_path, index=False)
+
+    plot_fig2b_overlay(all_df, os.path.join(RESULTS_ROOT, "fig2b_overlay.png"))
+    print(summary_df.to_string(index=False))
+
+
+def plot_fig2b_overlay(all_df: pd.DataFrame, output_png: str):
+    grouping_to_color = {
+        "pixel_region": "#1f77b4",
+        "spatial_sector": "#d62728",
+        "spatial_cluster": "#2ca02c",
+    }
+    variable_order = ["velocity_xy", "acceleration_xy"]
+    fig, axes = plt.subplots(1, 2, figsize=(12.5, 4.8), sharex=True, sharey=True)
+
+    for ax, variable_name in zip(axes, variable_order):
+        subset_var = all_df[all_df["variable"] == variable_name]
+        for grouping in ["pixel_region", "spatial_sector", "spatial_cluster"]:
+            subset = subset_var[subset_var["grouping"] == grouping].sort_values("layer")
+            ax.plot(
+                subset["layer_fraction"],
+                subset["r2_mean"],
+                linewidth=2,
+                color=grouping_to_color[grouping],
+                label=grouping,
+            )
+            ax.fill_between(
+                subset["layer_fraction"],
+                subset["r2_mean"] - subset["r2_std"],
+                subset["r2_mean"] + subset["r2_std"],
+                color=grouping_to_color[grouping],
+                alpha=0.12,
+            )
+        ax.axvline(8 / (DEPTH - 1), color="gray", linestyle="--", linewidth=1.2, label="Layer 8")
+        ax.set_title(PLOT_LABELS[variable_name])
+        ax.set_xlabel("Layer Fraction")
+        ax.grid(alpha=0.25)
+
+    axes[0].set_ylabel("Validation R$^2$")
+    handles, labels = axes[-1].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="center left", bbox_to_anchor=(1.0, 0.5), fontsize=9)
+    fig.suptitle("Figure 2(b) Cartesian Ablations", y=1.02, fontsize=14)
+    fig.tight_layout()
+    fig.savefig(output_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
 
 
 def plot_overlay(all_df: pd.DataFrame, output_png: str):
@@ -699,6 +848,11 @@ def main():
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--run-name", required=True)
     run_parser.add_argument("--feature-root", required=True)
+    run_parser.add_argument(
+        "--probe-set",
+        choices=["fig2c", "fig2b_velocity_xy", "fig2b_acceleration_xy"],
+        default="fig2c",
+    )
     run_parser.add_argument("--solver", choices=["trainable", "adamw100", "ridge"], default="trainable")
     run_parser.add_argument(
         "--grouping",
@@ -720,6 +874,7 @@ def main():
 
     summary_parser = subparsers.add_parser("summarize")
     summary_parser.add_argument("--device", default="cpu")
+    subparsers.add_parser("summarize_fig2b")
 
     args = parser.parse_args()
     Path(RESULTS_ROOT).mkdir(parents=True, exist_ok=True)
@@ -728,6 +883,8 @@ def main():
         run_single_config(args)
     elif args.command == "summarize":
         summarize_runs(args)
+    elif args.command == "summarize_fig2b":
+        summarize_fig2b_runs(args)
 
 
 if __name__ == "__main__":
