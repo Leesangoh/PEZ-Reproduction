@@ -73,9 +73,11 @@ python3 -m pip install numpy pandas scikit-learn matplotlib opencv-python torch 
 ```
 
 This reproduction assumes:
+- A Python 3.10+ environment with CUDA-capable PyTorch
 - Blender is available for Kubric rendering
-- `/isaac-sim/python.sh` is available for GPU runs
-- V-JEPA 2 source is available locally
+- V-JEPA 2 source is available locally (clone from [facebookresearch/vjepa2](https://github.com/facebookresearch/vjepa2) and add to `PYTHONPATH`)
+
+> **Note on the `python` command below.** All examples use plain `python` — use whatever your environment provides (`python`, `python3`, a venv, a conda env, etc.). My local setup happens to use an Isaac Sim container (`python`), which is why the commit history has that path. It is not required to reproduce anything here.
 
 ### Checkpoints
 
@@ -162,7 +164,7 @@ env PYTHONPATH=./kubric blender --background --python ./step1_generate.py -- --b
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step2_extract.py \
+env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 python ./step2_extract.py \
   --capture resid_post \
   --transform resize \
   --pooling temporal_last \
@@ -171,7 +173,7 @@ env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step2_extra
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step3_probe.py run \
+env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 python ./step3_probe.py run \
   --run-name fig2c_iter11_residpost_tlast_dirsector_angle \
   --feature-root ./artifacts/features/resid_post_resize_temporal_last \
   --probe-set fig2c \
@@ -222,7 +224,7 @@ This panel is not fully reproducible with one coherent recipe.
 **Commands**
 
 ```bash
-env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step2_extract.py \
+env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 python ./step2_extract.py \
   --capture resid_post \
   --transform resize \
   --pooling temporal_last_patch \
@@ -231,7 +233,7 @@ env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step2_extra
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step3_probe.py run \
+env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 python ./step3_probe.py run \
   --run-name fig2b_iter23_velocity_residpost_tlastpatch_magsector_center \
   --feature-root ./artifacts/features/resid_post_resize_temporal_last_patch \
   --probe-set fig2b_velocity_xy \
@@ -245,7 +247,7 @@ env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step3_probe
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step2_extract.py \
+env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 python ./step2_extract.py \
   --capture resid_post \
   --transform resize \
   --pooling temporal_last \
@@ -254,7 +256,7 @@ env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step2_extra
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=3 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step3_probe.py run \
+env CUDA_VISIBLE_DEVICES=3 PYTHONUNBUFFERED=1 python ./step3_probe.py run \
   --run-name fig2b_iter16_accel_residpost_tlast_magnitude_center \
   --feature-root ./artifacts/features/resid_post_resize_temporal_last \
   --probe-set fig2b_acceleration_xy \
@@ -312,7 +314,7 @@ This figure is only reproducible when the metric is treated as pair-wise scene-r
 **Command**
 
 ```bash
-env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphys_probe.py \
+env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 python ./step_intphys_probe.py \
   --device cuda:0 \
   --capture resid_pre \
   --transform resize \
@@ -355,21 +357,21 @@ wget -c -O <YOUR_CHECKPOINT_DIR>/vith.pt https://dl.fbaipublicfiles.com/vjepa2/v
 **Commands**
 
 ```bash
-env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphys_probe.py \
+env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 python ./step_intphys_probe.py \
   --model large --device cuda:0 --capture resid_pre --transform resize --batch-size 8 \
   --run-name intphys_possible_impossible_full_select_relative --n-frames-sample 16 \
   --selection-metric relative_accuracy
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphys_probe.py \
+env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 python ./step_intphys_probe.py \
   --model huge --device cuda:0 --capture resid_pre --transform resize --batch-size 4 \
   --feature-root ./artifacts/features/intphys_vjepa2_H_resid_pre_resize_fulldev \
   --run-name figure6_intphys_huge_linear_full --n-frames-sample 16 --selection-metric relative_accuracy
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphys_probe.py \
+env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 python ./step_intphys_probe.py \
   --model giant --device cuda:0 --capture resid_pre --transform resize --batch-size 4 \
   --run-name figure6_intphys_giant_linear_full --n-frames-sample 16 --selection-metric relative_accuracy
 ```
@@ -410,21 +412,21 @@ env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphy
 **Commands**
 
 ```bash
-env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphys_attentive.py \
+env CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 python ./step_intphys_attentive.py \
   --model large --device cuda:0 --capture resid_pre --transform resize \
   --patch-pool temporal_last_patch --batch-size 4 --probe-batch-size 16 \
   --n-frames-sample 16 --run-name figure8_intphys_large_attentive
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphys_attentive.py \
+env CUDA_VISIBLE_DEVICES=1 PYTHONUNBUFFERED=1 python ./step_intphys_attentive.py \
   --model huge --device cuda:0 --capture resid_pre --transform resize \
   --patch-pool temporal_last_patch --batch-size 2 --probe-batch-size 8 \
   --n-frames-sample 16 --run-name figure8_intphys_huge_attentive
 ```
 
 ```bash
-env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 /isaac-sim/python.sh ./step_intphys_attentive.py \
+env CUDA_VISIBLE_DEVICES=2 PYTHONUNBUFFERED=1 python ./step_intphys_attentive.py \
   --model giant --device cuda:0 --capture resid_pre --transform resize \
   --patch-pool temporal_last_patch --batch-size 2 --probe-batch-size 8 \
   --n-frames-sample 16 --run-name figure8_intphys_giant_attentive
