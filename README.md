@@ -131,6 +131,25 @@ Cartesian summary:
 - both variables peak in middle layers and weaken slightly toward the output
 - overall: partial qualitative match, not a full Figure 2(b) reproduction
 
+## Possible/Impossible Physics
+
+Main outputs:
+
+- [possible_impossible_reproduction.md](/home/solee/pez/artifacts/results/possible_impossible_reproduction.md)
+- [results_intphys_possible_impossible.csv](/home/solee/pez/artifacts/results/results_intphys_possible_impossible.csv)
+- [figure_intphys_possible_impossible.png](/home/solee/pez/artifacts/results/figure_intphys_possible_impossible.png)
+
+Current status:
+
+- paper target is **Figure 1** (`IntPhys` possible vs impossible)
+- exact paper-faithful reproduction is still blocked by:
+  - underspecified IntPhys preprocessing/split details in the PEZ paper
+  - CPU-only runtime for the available V-JEPA environment
+- a public-dev pilot was attempted and **did not** reproduce the Layer-8 sharp rise
+  - `L0 accuracy = 62.5%`
+  - `L8 accuracy = 72.5%`
+  - `peak accuracy = 85.0% @ layer 15`
+
 ## Results Directory
 
 All current rewrite outputs live under:

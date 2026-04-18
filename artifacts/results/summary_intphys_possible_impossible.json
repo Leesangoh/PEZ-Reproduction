@@ -1,0 +1,8 @@
+{
+  "l0_acc": 0.625,
+  "l8_acc": 0.725,
+  "peak_acc": 0.85,
+  "peak_layer": 15,
+  "first_ge_85_layer": 15,
+  "late_acc": 0.775
+}
