@@ -246,11 +246,24 @@ def pool_tokens(layer_tokens: torch.Tensor, pooling: str):
         return grid[:, 0].mean(dim=(1, 2))
     if pooling == "temporal_diff":
         return grid[:, -1].mean(dim=(1, 2)) - grid[:, 0].mean(dim=(1, 2))
+    if pooling == "temporal_last_patch":
+        return grid[:, -1].reshape(layer_tokens.shape[0], SPATIAL_GRID * SPATIAL_GRID, layer_tokens.shape[-1])
+    if pooling == "temporal_diff_patch":
+        return (
+            grid[:, -1].reshape(layer_tokens.shape[0], SPATIAL_GRID * SPATIAL_GRID, layer_tokens.shape[-1])
+            - grid[:, 0].reshape(layer_tokens.shape[0], SPATIAL_GRID * SPATIAL_GRID, layer_tokens.shape[-1])
+        )
     raise ValueError(f"Unknown pooling: {pooling}")
 
 
 def extract_dataset(model, video_dirs, transform, batch_size: int, device: str, pooling: str):
-    features = [np.zeros((len(video_dirs), EMBED_DIM), dtype=np.float32) for _ in range(DEPTH)]
+    if pooling.endswith("_patch"):
+        features = [
+            np.zeros((len(video_dirs), SPATIAL_GRID * SPATIAL_GRID, EMBED_DIM), dtype=np.float32)
+            for _ in range(DEPTH)
+        ]
+    else:
+        features = [np.zeros((len(video_dirs), EMBED_DIM), dtype=np.float32) for _ in range(DEPTH)]
 
     for start in tqdm(range(0, len(video_dirs), batch_size), desc="extract"):
         end = min(start + batch_size, len(video_dirs))
@@ -287,7 +300,14 @@ def main():
     parser.add_argument("--transform", choices=["resize", "eval_preproc"], default="resize")
     parser.add_argument(
         "--pooling",
-        choices=["mean", "temporal_last", "temporal_first", "temporal_diff"],
+        choices=[
+            "mean",
+            "temporal_last",
+            "temporal_first",
+            "temporal_diff",
+            "temporal_last_patch",
+            "temporal_diff_patch",
+        ],
         default="mean",
     )
     parser.add_argument("--output-root", default=None)

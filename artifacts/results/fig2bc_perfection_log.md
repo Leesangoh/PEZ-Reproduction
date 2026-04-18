@@ -434,3 +434,44 @@ Interpretation:
 - Figure 2(b) prefers probe-specific settings:
   - velocity likes a harder split plus centered targets
   - acceleration likes the simpler magnitude split plus centered targets
+
+### Iteration 20
+
+- Hypothesis: `temporal_diff` pooling may better match motion-difference semantics and therefore align the PEZ transition more tightly with the paper.
+- What changed:
+  - extracted:
+    - `artifacts/features/resid_post_resize_temporal_diff`
+  - ran:
+    - `fig2c_iter20_residpost_tdiff_dirsector_angle`
+- Result:
+  - speed:
+    - `L0=0.447`, `L8=0.965`, peak `L17=0.987`, `first>=0.8 @ L2`
+  - direction:
+    - `L0=-0.503`, `L8=0.731`, peak `L21=0.865`, `first>=0.8 @ L11`, late `L23=0.864`
+  - acceleration:
+    - `L0=0.848`, `L8=0.962`, peak `L19=0.984`
+- Diff from paper:
+  - `temporal_diff` over-corrects the direction curve:
+    - onset moves too late
+    - late decline disappears
+  - this branch is worse than the current best Figure 2(c) recipe.
+- Next experiment:
+  - test the same pooling on Cartesian targets only.
+
+### Iteration 21
+
+- Hypothesis: `temporal_diff` may still help Figure 2(b) by lowering the overly high shallow Cartesian baseline.
+- What changed:
+  - ran:
+    - `fig2b_iter21_velocity_residpost_tdiff_magsector_center`
+    - `fig2b_iter21_accel_residpost_tdiff_magnitude_center`
+- Result:
+  - velocity_xy:
+    - `L0=0.027`, `L8=0.958`, peak `L13=0.987`, `first>=0.8 @ L5`
+  - acceleration_xy:
+    - `L0=0.011`, `L8=0.904`, peak `L19=0.977`, `first>=0.8 @ L5`
+- Diff from paper:
+  - shallow baselines become unrealistically small.
+  - onset stays too early, so `temporal_diff` is not the missing detail for Figure 2(b) either.
+- Next experiment:
+  - move from pooled clip vectors to patch-level probing, closer to the Appendix C.5 analysis.

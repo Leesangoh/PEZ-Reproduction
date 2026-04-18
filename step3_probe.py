@@ -346,6 +346,16 @@ def fit_probe(X_train, y_train, X_val, y_val, alpha):
     return compute_r2(y_val, pred_val)
 
 
+def flatten_patch_features(features, targets):
+    n_samples, n_patches, dim = features.shape
+    X = features.reshape(n_samples * n_patches, dim)
+    y = np.asarray(targets)
+    if y.ndim == 1:
+        y = y[:, None]
+    y_rep = np.repeat(y, n_patches, axis=0)
+    return X, y_rep
+
+
 def normalize_train_val(train, val, mode: str):
     mean = train.mean(axis=0, keepdims=True)
     if mode == "none":
@@ -613,6 +623,178 @@ def evaluate_layer(features, targets, groups, output_dim, device, solver, norm_m
     }
 
 
+def evaluate_layer_patch(features, targets, groups, output_dim, device, solver, norm_mode):
+    splitter = GroupKFold(n_splits=min(CV_SPLITS, int(np.unique(groups).size)))
+    fold_scores = []
+    fold_best_lrs = []
+    fold_best_wds = []
+
+    for train_idx, val_idx in splitter.split(features, targets, groups):
+        X_train_patch, y_train_patch = flatten_patch_features(features[train_idx], targets[train_idx])
+        X_val_patch, _ = flatten_patch_features(features[val_idx], targets[val_idx])
+
+        if solver == "trainable":
+            cfg_results = fit_trainable_probe_batched(
+                X_train_patch,
+                y_train_patch,
+                X_val_patch,
+                np.repeat(np.asarray(targets[val_idx])[:, None] if np.asarray(targets[val_idx]).ndim == 1 else np.asarray(targets[val_idx]), features.shape[1], axis=0),
+                output_dim=output_dim,
+                lr_grid=LR_GRID,
+                wd_grid=WD_GRID,
+                device=device,
+                norm_mode=norm_mode,
+            )
+            best_lr, best_wd, _ = max(cfg_results, key=lambda item: item[2])
+            score = fit_trainable_probe_single(
+                X_train_patch,
+                y_train_patch,
+                X_val_patch,
+                np.repeat(np.asarray(targets[val_idx])[:, None] if np.asarray(targets[val_idx]).ndim == 1 else np.asarray(targets[val_idx]), features.shape[1], axis=0),
+                output_dim=output_dim,
+                lr=best_lr,
+                weight_decay=best_wd,
+                device=device,
+                max_epochs=MAX_EPOCHS,
+                patience_limit=PATIENCE,
+                norm_mode=norm_mode,
+            )
+            # Refit once more to recover patch predictions for clip averaging.
+            y_train_arr = np.asarray(y_train_patch, dtype=np.float32)
+            y_val_arr = np.asarray(targets[val_idx], dtype=np.float32)
+            if y_val_arr.ndim == 1:
+                y_val_arr = y_val_arr[:, None]
+            X_train_std, X_val_std, _, _ = normalize_train_val(X_train_patch, X_val_patch, norm_mode)
+            y_train_std, _, y_mean, y_std = normalize_train_val(y_train_arr, y_val_arr, norm_mode)
+            X_tr = torch.tensor(X_train_std, dtype=torch.float32, device=device)
+            X_va = torch.tensor(X_val_std, dtype=torch.float32, device=device)
+            y_tr = torch.tensor(y_train_std, dtype=torch.float32, device=device)
+            torch.manual_seed(CV_RANDOM_SEED)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(CV_RANDOM_SEED)
+            probe = torch.nn.Linear(X_tr.shape[1], output_dim, bias=True).to(device)
+            optimizer = torch.optim.AdamW(probe.parameters(), lr=best_lr, weight_decay=best_wd)
+            criterion = torch.nn.MSELoss()
+            best_val_loss = float("inf")
+            best_pred = None
+            patience = 0
+            y_val_patch = np.repeat(y_val_arr, features.shape[1], axis=0)
+            y_val_std = (y_val_patch - y_mean) / y_std if norm_mode == "zscore" else (
+                y_val_patch - y_mean if norm_mode == "center" else y_val_patch
+            )
+            y_va = torch.tensor(y_val_std, dtype=torch.float32, device=device)
+            for _ in range(MAX_EPOCHS):
+                probe.train()
+                pred = probe(X_tr)
+                loss = criterion(pred, y_tr)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                probe.eval()
+                with torch.no_grad():
+                    val_pred = probe(X_va)
+                    val_loss = criterion(val_pred, y_va).item()
+                if val_loss + 1e-8 < best_val_loss:
+                    best_val_loss = val_loss
+                    best_pred = val_pred.detach().cpu().numpy()
+                    patience = 0
+                else:
+                    patience += 1
+                    if patience >= PATIENCE:
+                        break
+            if best_pred is None:
+                with torch.no_grad():
+                    best_pred = probe(X_va).detach().cpu().numpy()
+            pred_patch = best_pred * y_std + y_mean
+            pred_clip = pred_patch.reshape(len(val_idx), features.shape[1], output_dim).mean(axis=1)
+            fold_scores.append(compute_r2(targets[val_idx], pred_clip))
+            fold_best_lrs.append(best_lr)
+            fold_best_wds.append(best_wd)
+        elif solver == "adamw100":
+            y_train_arr = np.asarray(y_train_patch, dtype=np.float32)
+            y_val_arr = np.asarray(targets[val_idx], dtype=np.float32)
+            if y_val_arr.ndim == 1:
+                y_val_arr = y_val_arr[:, None]
+            y_val_patch = np.repeat(y_val_arr, features.shape[1], axis=0)
+            X_train_std, X_val_std, _, _ = normalize_train_val(X_train_patch, X_val_patch, norm_mode)
+            y_train_std, _, y_mean, y_std = normalize_train_val(y_train_arr, y_val_arr, norm_mode)
+            if norm_mode == "zscore":
+                y_val_std = (y_val_patch - y_mean) / y_std
+            elif norm_mode == "center":
+                y_val_std = y_val_patch - y_mean
+            else:
+                y_val_std = y_val_patch
+            X_tr = torch.tensor(X_train_std, dtype=torch.float32, device=device)
+            X_va = torch.tensor(X_val_std, dtype=torch.float32, device=device)
+            y_tr = torch.tensor(y_train_std, dtype=torch.float32, device=device)
+            y_va = torch.tensor(y_val_std, dtype=torch.float32, device=device)
+            torch.manual_seed(CV_RANDOM_SEED)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(CV_RANDOM_SEED)
+            probe = torch.nn.Linear(X_tr.shape[1], output_dim, bias=True).to(device)
+            optimizer = torch.optim.AdamW(probe.parameters(), lr=ADAMW100_LR, weight_decay=ADAMW100_WD)
+            criterion = torch.nn.MSELoss()
+            best_val_loss = float("inf")
+            best_pred = None
+            patience = 0
+            for _ in range(ADAMW100_EPOCHS):
+                probe.train()
+                pred = probe(X_tr)
+                loss = criterion(pred, y_tr)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                probe.eval()
+                with torch.no_grad():
+                    val_pred = probe(X_va)
+                    val_loss = criterion(val_pred, y_va).item()
+                if val_loss + 1e-8 < best_val_loss:
+                    best_val_loss = val_loss
+                    best_pred = val_pred.detach().cpu().numpy()
+                    patience = 0
+                else:
+                    patience += 1
+                    if patience >= ADAMW100_PATIENCE:
+                        break
+            if best_pred is None:
+                with torch.no_grad():
+                    best_pred = probe(X_va).detach().cpu().numpy()
+            pred_patch = best_pred * y_std + y_mean
+            pred_clip = pred_patch.reshape(len(val_idx), features.shape[1], output_dim).mean(axis=1)
+            fold_scores.append(compute_r2(targets[val_idx], pred_clip))
+            fold_best_lrs.append(ADAMW100_LR)
+            fold_best_wds.append(ADAMW100_WD)
+        elif solver == "ridge":
+            best_score = -np.inf
+            best_wd = None
+            best_pred_clip = None
+            y_val_arr = np.asarray(targets[val_idx], dtype=np.float32)
+            if y_val_arr.ndim == 1:
+                y_val_arr = y_val_arr[:, None]
+            for weight_decay in WD_GRID:
+                probe = Ridge(alpha=weight_decay, fit_intercept=True)
+                probe.fit(X_train_patch, y_train_patch)
+                pred_patch = probe.predict(X_val_patch)
+                pred_clip = pred_patch.reshape(len(val_idx), features.shape[1], output_dim).mean(axis=1)
+                score = compute_r2(targets[val_idx], pred_clip)
+                if score > best_score:
+                    best_score = score
+                    best_wd = weight_decay
+                    best_pred_clip = pred_clip
+            fold_scores.append(float(best_score))
+            fold_best_lrs.append(0.0)
+            fold_best_wds.append(float(best_wd))
+        else:
+            raise ValueError(f"Unknown solver: {solver}")
+
+    return {
+        "r2_mean": float(np.mean(fold_scores)),
+        "r2_std": float(np.std(fold_scores)),
+        "best_lr_mode": float(pd.Series(fold_best_lrs).mode().iloc[0]),
+        "best_wd_mode": float(pd.Series(fold_best_wds).mode().iloc[0]),
+    }
+
+
 def load_layer(feature_root: str, dataset_name: str, layer_index: int):
     path = os.path.join(feature_root, MODEL_NAME, dataset_name, f"layer_{layer_index:02d}.npy")
     return np.load(path)
@@ -637,15 +819,26 @@ def run_single_config(args):
         )
         for layer in range(DEPTH):
             features = load_layer(args.feature_root, spec["dataset"], layer)
-            result = evaluate_layer(
-                features=features,
-                targets=spec["target"],
-                groups=groups,
-                output_dim=spec["output_dim"],
-                device=args.device,
-                solver=args.solver,
-                norm_mode=args.norm_mode,
-            )
+            if features.ndim == 3:
+                result = evaluate_layer_patch(
+                    features=features,
+                    targets=spec["target"],
+                    groups=groups,
+                    output_dim=spec["output_dim"],
+                    device=args.device,
+                    solver=args.solver,
+                    norm_mode=args.norm_mode,
+                )
+            else:
+                result = evaluate_layer(
+                    features=features,
+                    targets=spec["target"],
+                    groups=groups,
+                    output_dim=spec["output_dim"],
+                    device=args.device,
+                    solver=args.solver,
+                    norm_mode=args.norm_mode,
+                )
             row = {
                 "run_name": args.run_name,
                 "variable": variable_name,
