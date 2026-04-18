@@ -1,3 +1,4 @@
 l0_relative_acc,l8_relative_acc,peak_relative_acc,peak_relative_layer,late_relative_acc,first_relative_ge_0.8,l0_clip_acc,l8_clip_acc,peak_clip_acc,model,run_name
 0.0,0.8222222222222223,0.888888888888889,10,0.7888888888888888,8,0.5,0.5055555555555555,0.5416666666666667,Large,figure8_intphys_large_attentive
 0.0,0.6888888888888889,0.8666666666666668,16,0.7555555555555555,12,0.5,0.5027777777777778,0.5333333333333333,Huge,figure8_intphys_huge_attentive
+0.0,0.6888888888888889,0.8777777777777779,21,0.8111111111111111,1,0.5,0.525,0.55,Giant,figure8_intphys_giant_attentive
