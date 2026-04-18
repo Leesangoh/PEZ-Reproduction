@@ -144,11 +144,12 @@ Current status:
 - paper target is **Figure 1** (`IntPhys` possible vs impossible)
 - exact paper-faithful reproduction is still blocked by:
   - underspecified IntPhys preprocessing/split details in the PEZ paper
-  - CPU-only runtime for the available V-JEPA environment
-- a public-dev pilot was attempted and **did not** reproduce the Layer-8 sharp rise
-  - `L0 accuracy = 62.5%`
-  - `L8 accuracy = 72.5%`
-  - `peak accuracy = 85.0% @ layer 15`
+  - uncertainty about the exact labeled IntPhys slice used in the paper
+- a full public-dev run was completed and **did not** reproduce the Figure 1 sharp PEZ rise
+  - `L0 accuracy = 53.6%`
+  - `L8 accuracy = 73.9%`
+  - `peak accuracy = 77.2% @ layer 18`
+  - strongest jump appears around `L6 -> L7`, not a sharp `L8` rise
 
 ## Results Directory
 

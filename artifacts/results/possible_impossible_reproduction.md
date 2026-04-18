@@ -106,21 +106,7 @@ Current pilot settings:
 - grouping: scene quadruplet (`block/scene_id`)
 - probe: trainable linear binary classifier with the same `20`-config `lr x wd` sweep pattern used elsewhere in this repo
 
-### Why only a pilot subset
-
-The IntPhys dev extraction path is CPU-only in the available runtime.
-
-- full-dev extraction was started and confirmed structurally feasible
-- but full-dev on CPU was too slow for a faithful end-to-end run here
-
-So the final reported result is a **pilot subset**:
-
-- `3 scenes per block`
-- total `36` clips
-
-This is enough to test whether a Figure-1-like sharp PEZ transition obviously appears.
-
-## Pilot Result
+### Pilot Result
 
 Outputs:
 
@@ -138,7 +124,7 @@ Pilot summary:
 
 ## Interpretation
 
-This pilot **does not** reproduce Figure 1.
+This pilot **did not** reproduce Figure 1.
 
 Why:
 
@@ -151,13 +137,53 @@ So under this public-dev subset pilot:
 - possible/impossible physics is decodable
 - but its emergence is **too late** to match the paper's Figure 1
 
+## Full Dev Run
+
+After the pilot, the same probe was rerun on the **full public dev split** using GPU:
+
+- total clips: `360`
+- blocks: `O1`, `O2`, `O3`
+- grouping: matched scene quadruplet
+- model/probe settings unchanged
+
+Full-dev outputs:
+
+- [results_intphys_possible_impossible_full.csv](/home/solee/pez/artifacts/results/results_intphys_possible_impossible_full.csv)
+- [figure_intphys_possible_impossible_full.png](/home/solee/pez/artifacts/results/figure_intphys_possible_impossible_full.png)
+- [summary_intphys_possible_impossible_full.json](/home/solee/pez/artifacts/results/summary_intphys_possible_impossible_full.json)
+
+Full-dev summary:
+
+- `L0 accuracy = 53.61%`
+- `L7 accuracy = 73.89%`
+- `L8 accuracy = 73.89%`
+- `peak accuracy = 77.22% @ layer 18`
+- `late accuracy = 73.61%`
+- `accuracy std near L7-L9 = ~3.4% to 4.9%`
+
+Interpretation:
+
+- there is a real transition from near-chance early layers to much better mid/late performance
+- but it is **not** the paper's sharp Figure-1 pattern
+- the strongest jump is around `L6 -> L7`, and performance then plateaus rather than sharply peaking at the PEZ
+- importantly, the curve never reaches the paper's reported `~85-95%` range on this public-dev setup
+
+So the full-dev verdict is:
+
+- **Figure 1 is not reproduced**
+
+The pilot and the full-dev run agree on the same qualitative outcome:
+
+- possible/impossible becomes more decodable in deeper layers
+- but the public-dev reproduction does not show the paper's strong one-third emergence signature
+
 ## Most Likely Reasons For The Gap
 
 1. this is only a public-dev subset pilot, not the full paper setup
 2. frame sampling for IntPhys is underspecified in the paper
 3. exact split semantics are underspecified in the paper
 4. CPU-only execution forced a reduced run
-5. the paper may have used a larger or different labeled IntPhys slice than this public-dev pilot
+5. the paper may have used a larger or different labeled IntPhys slice than the public dev split
 
 ## Bottom Line
 
@@ -165,4 +191,5 @@ So under this public-dev subset pilot:
 - **Public IntPhys dev reproduction path exists:** yes
 - **Exact paper-faithful reproduction completed:** no
 - **Best-effort pilot attempted:** yes
-- **Pilot outcome:** not reproduced; the sharp Layer-8 rise did not appear
+- **Full public-dev run completed:** yes
+- **Full-dev outcome:** not reproduced; the sharp Layer-8 PEZ rise did not appear

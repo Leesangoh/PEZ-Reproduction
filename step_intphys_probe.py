@@ -363,12 +363,13 @@ def main():
     parser.add_argument("--feature-root", default=str(FEATURE_ROOT_DEFAULT))
     parser.add_argument("--reuse-features", action="store_true")
     parser.add_argument("--max-scenes-per-block", type=int, default=None)
+    parser.add_argument("--run-name", default="intphys_possible_impossible")
     args = parser.parse_args()
 
     feature_root = Path(args.feature_root)
-    results_csv = RESULTS_ROOT / "results_intphys_possible_impossible.csv"
-    results_png = RESULTS_ROOT / "figure_intphys_possible_impossible.png"
-    summary_json = RESULTS_ROOT / "summary_intphys_possible_impossible.json"
+    results_csv = RESULTS_ROOT / f"results_{args.run_name}.csv"
+    results_png = RESULTS_ROOT / f"figure_{args.run_name}.png"
+    summary_json = RESULTS_ROOT / f"summary_{args.run_name}.json"
 
     if args.reuse_features and (feature_root / "manifest.csv").exists():
         df = pd.read_csv(feature_root / "manifest.csv")
