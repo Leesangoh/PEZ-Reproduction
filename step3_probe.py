@@ -70,6 +70,8 @@ PROBE_SETS = {
     "fig2c": ("speed", "direction", "acceleration"),
     "fig2b_velocity_xy": ("velocity_xy",),
     "fig2b_acceleration_xy": ("acceleration_xy",),
+    "fig2b_velocity_axes": ("velocity_x", "velocity_y"),
+    "fig2b_acceleration_axes": ("acceleration_x", "acceleration_y"),
 }
 
 PLOT_LABELS = {
@@ -78,6 +80,10 @@ PLOT_LABELS = {
     "acceleration": "Acceleration",
     "velocity_xy": "Velocity XY",
     "acceleration_xy": "Acceleration XY",
+    "velocity_x": "Velocity X",
+    "velocity_y": "Velocity Y",
+    "acceleration_x": "Acceleration X",
+    "acceleration_y": "Acceleration Y",
 }
 
 PLOT_COLORS = {
@@ -86,6 +92,10 @@ PLOT_COLORS = {
     "acceleration": "#2ca02c",
     "velocity_xy": "#1f77b4",
     "acceleration_xy": "#2ca02c",
+    "velocity_x": "#1f77b4",
+    "velocity_y": "#ff7f0e",
+    "acceleration_x": "#2ca02c",
+    "acceleration_y": "#9467bd",
 }
 
 
@@ -164,6 +174,22 @@ def load_targets(direction_target: str):
             "pos_x_px": velocity_df["pos_x_px"].to_numpy(dtype=np.float32),
             "pos_y_px": velocity_df["pos_y_px"].to_numpy(dtype=np.float32),
         },
+        "velocity_x": {
+            "dataset": "velocity",
+            "target": velocity_df["vx_px"].to_numpy(dtype=np.float32),
+            "video_ids": velocity_df["video_id"].tolist(),
+            "output_dim": 1,
+            "pos_x_px": velocity_df["pos_x_px"].to_numpy(dtype=np.float32),
+            "pos_y_px": velocity_df["pos_y_px"].to_numpy(dtype=np.float32),
+        },
+        "velocity_y": {
+            "dataset": "velocity",
+            "target": velocity_df["vy_px"].to_numpy(dtype=np.float32),
+            "video_ids": velocity_df["video_id"].tolist(),
+            "output_dim": 1,
+            "pos_x_px": velocity_df["pos_x_px"].to_numpy(dtype=np.float32),
+            "pos_y_px": velocity_df["pos_y_px"].to_numpy(dtype=np.float32),
+        },
         "acceleration_xy": {
             "dataset": "acceleration",
             "target": np.stack(
@@ -175,6 +201,22 @@ def load_targets(direction_target: str):
             ).astype(np.float32),
             "video_ids": acceleration_df["video_id"].tolist(),
             "output_dim": 2,
+            "pos_x_px": acceleration_df["pos_x_px"].to_numpy(dtype=np.float32),
+            "pos_y_px": acceleration_df["pos_y_px"].to_numpy(dtype=np.float32),
+        },
+        "acceleration_x": {
+            "dataset": "acceleration",
+            "target": acceleration_df["ax_px"].to_numpy(dtype=np.float32),
+            "video_ids": acceleration_df["video_id"].tolist(),
+            "output_dim": 1,
+            "pos_x_px": acceleration_df["pos_x_px"].to_numpy(dtype=np.float32),
+            "pos_y_px": acceleration_df["pos_y_px"].to_numpy(dtype=np.float32),
+        },
+        "acceleration_y": {
+            "dataset": "acceleration",
+            "target": acceleration_df["ay_px"].to_numpy(dtype=np.float32),
+            "video_ids": acceleration_df["video_id"].tolist(),
+            "output_dim": 1,
             "pos_x_px": acceleration_df["pos_x_px"].to_numpy(dtype=np.float32),
             "pos_y_px": acceleration_df["pos_y_px"].to_numpy(dtype=np.float32),
         },
@@ -206,6 +248,21 @@ def extract_direction_groups(video_ids):
         match = re.search(r"_dir(\d+)_", video_id)
         if match is None:
             raise ValueError(f"Cannot parse direction index from {video_id}")
+        groups.append(int(match.group(1)))
+    return np.asarray(groups, dtype=np.int64)
+
+
+def extract_magnitude_groups(video_ids):
+    groups = []
+    for video_id in video_ids:
+        if video_id.startswith("vel_"):
+            match = re.search(r"_spd(\d+)_", video_id)
+        elif video_id.startswith("acc_"):
+            match = re.search(r"_acc(\d+)_", video_id)
+        else:
+            match = None
+        if match is None:
+            raise ValueError(f"Cannot parse magnitude index from {video_id}")
         groups.append(int(match.group(1)))
     return np.asarray(groups, dtype=np.int64)
 
@@ -248,12 +305,22 @@ def build_groups(video_ids, grouping: str, pos_x_px=None, pos_y_px=None):
         return extract_video_groups(video_ids)
     if grouping == "direction":
         return extract_direction_groups(video_ids)
+    if grouping == "magnitude":
+        return extract_magnitude_groups(video_ids)
     if grouping == "pixel_region":
         return extract_pixel_region_groups(pos_x_px, pos_y_px)
     if grouping == "spatial_sector":
         return extract_spatial_sector_groups(pos_x_px, pos_y_px)
     if grouping == "spatial_cluster":
         return extract_spatial_cluster_groups(pos_x_px, pos_y_px)
+    if grouping == "direction_spatial_sector":
+        direction = extract_direction_groups(video_ids)
+        sector = extract_spatial_sector_groups(pos_x_px, pos_y_px)
+        return pd.factorize(list(zip(direction.tolist(), sector.tolist())), sort=True)[0].astype(np.int64)
+    if grouping == "magnitude_spatial_sector":
+        magnitude = extract_magnitude_groups(video_ids)
+        sector = extract_spatial_sector_groups(pos_x_px, pos_y_px)
+        return pd.factorize(list(zip(magnitude.tolist(), sector.tolist())), sort=True)[0].astype(np.int64)
     raise ValueError(f"Unknown grouping: {grouping}")
 
 
@@ -850,7 +917,13 @@ def main():
     run_parser.add_argument("--feature-root", required=True)
     run_parser.add_argument(
         "--probe-set",
-        choices=["fig2c", "fig2b_velocity_xy", "fig2b_acceleration_xy"],
+        choices=[
+            "fig2c",
+            "fig2b_velocity_xy",
+            "fig2b_acceleration_xy",
+            "fig2b_velocity_axes",
+            "fig2b_acceleration_axes",
+        ],
         default="fig2c",
     )
     run_parser.add_argument("--solver", choices=["trainable", "adamw100", "ridge"], default="trainable")
@@ -861,9 +934,12 @@ def main():
             "condition",
             "video",
             "direction",
+            "magnitude",
             "pixel_region",
             "spatial_sector",
             "spatial_cluster",
+            "direction_spatial_sector",
+            "magnitude_spatial_sector",
         ],
         required=True,
     )

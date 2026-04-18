@@ -52,6 +52,8 @@ MODEL_NAME = "vjepa2_L"
 EMBED_DIM = 1024
 DEPTH = 24
 CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "vitl.pt")
+TEMPORAL_TOKENS = N_FRAMES // 2
+SPATIAL_GRID = VJEPA2_INPUT_SIZE // 16
 
 
 def forward_resid_pre(self, x, masks=None):
@@ -227,7 +229,27 @@ def load_clip(video_dir: str, transform):
     return torch.stack(frames).permute(1, 0, 2, 3)
 
 
-def extract_dataset(model, video_dirs, transform, batch_size: int, device: str):
+def pool_tokens(layer_tokens: torch.Tensor, pooling: str):
+    if pooling == "mean":
+        return layer_tokens.mean(dim=1)
+
+    grid = layer_tokens.view(
+        layer_tokens.shape[0],
+        TEMPORAL_TOKENS,
+        SPATIAL_GRID,
+        SPATIAL_GRID,
+        layer_tokens.shape[-1],
+    )
+    if pooling == "temporal_last":
+        return grid[:, -1].mean(dim=(1, 2))
+    if pooling == "temporal_first":
+        return grid[:, 0].mean(dim=(1, 2))
+    if pooling == "temporal_diff":
+        return grid[:, -1].mean(dim=(1, 2)) - grid[:, 0].mean(dim=(1, 2))
+    raise ValueError(f"Unknown pooling: {pooling}")
+
+
+def extract_dataset(model, video_dirs, transform, batch_size: int, device: str, pooling: str):
     features = [np.zeros((len(video_dirs), EMBED_DIM), dtype=np.float32) for _ in range(DEPTH)]
 
     for start in tqdm(range(0, len(video_dirs), batch_size), desc="extract"):
@@ -241,7 +263,7 @@ def extract_dataset(model, video_dirs, transform, batch_size: int, device: str):
             outputs = model(batch)
 
         for layer_index, layer_tokens in enumerate(outputs):
-            pooled = layer_tokens.mean(dim=1).float().cpu().numpy()
+            pooled = pool_tokens(layer_tokens, pooling).float().cpu().numpy()
             features[layer_index][start:end] = pooled
 
     return features
@@ -254,21 +276,27 @@ def save_branch(output_root: str, dataset_name: str, features):
         np.save(dataset_root / f"layer_{layer_index:02d}.npy", array)
 
 
-def default_output_root(capture: str, transform_name: str):
-    return os.path.join("/home/solee/pez/artifacts/features", f"{capture}_{transform_name}")
+def default_output_root(capture: str, transform_name: str, pooling: str):
+    suffix = f"{capture}_{transform_name}" if pooling == "mean" else f"{capture}_{transform_name}_{pooling}"
+    return os.path.join("/home/solee/pez/artifacts/features", suffix)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--capture", choices=["resid_pre", "resid_post"], default="resid_pre")
     parser.add_argument("--transform", choices=["resize", "eval_preproc"], default="resize")
+    parser.add_argument(
+        "--pooling",
+        choices=["mean", "temporal_last", "temporal_first", "temporal_diff"],
+        default="mean",
+    )
     parser.add_argument("--output-root", default=None)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--reuse-existing", action="store_true")
     args = parser.parse_args()
 
-    output_root = args.output_root or default_output_root(args.capture, args.transform)
+    output_root = args.output_root or default_output_root(args.capture, args.transform, args.pooling)
     Path(output_root).mkdir(parents=True, exist_ok=True)
 
     metadata_path = Path(output_root) / "extraction_metadata.json"
@@ -289,6 +317,7 @@ def main():
             transform=transform,
             batch_size=args.batch_size,
             device=args.device,
+            pooling=args.pooling,
         )
         save_branch(output_root, dataset_name, features)
 
@@ -296,6 +325,7 @@ def main():
         "model": MODEL_NAME,
         "capture": args.capture,
         "transform": args.transform,
+        "pooling": args.pooling,
         "input_size": VJEPA2_INPUT_SIZE,
         "n_layers": DEPTH,
         "embed_dim": EMBED_DIM,
