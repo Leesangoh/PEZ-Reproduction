@@ -33,13 +33,14 @@ import torch
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import GroupKFold
 
+import constants
 from step2_extract import build_transform, load_model, resolve_model_spec
 
 
-INTPHYS_ROOT = Path("/home/solee/pez/artifacts/intphys/dev")
-INTPHYS_STARTING_KIT = Path("/home/solee/pez/artifacts/intphys/starting_kit.zip")
-FEATURE_ROOT_BASE = Path("/home/solee/pez/artifacts/features")
-RESULTS_ROOT = Path("/home/solee/pez/artifacts/results")
+INTPHYS_ROOT = Path(constants.INTPHYS_ROOT) / "dev"
+INTPHYS_STARTING_KIT = Path(constants.INTPHYS_ROOT) / "starting_kit.zip"
+FEATURE_ROOT_BASE = Path(constants.FEATURES_ROOT)
+RESULTS_ROOT = Path(constants.RESULTS_ROOT)
 
 DEFAULT_N_FRAMES_SAMPLE = 16
 CV_SPLITS = 5

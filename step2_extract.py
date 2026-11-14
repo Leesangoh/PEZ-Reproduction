@@ -31,10 +31,11 @@ import torch
 from torchvision import transforms
 from tqdm import tqdm
 
-sys.path.insert(0, "/home/solee/pez")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from constants import (
     CHECKPOINT_DIR,
     DATA_ROOT,
+    FEATURES_ROOT,
     IMAGENET_MEAN,
     IMAGENET_STD,
     N_FRAMES,
@@ -294,7 +295,7 @@ def save_branch(output_root: str, repo_name: str, dataset_name: str, features):
 
 def default_output_root(capture: str, transform_name: str, pooling: str):
     suffix = f"{capture}_{transform_name}" if pooling == "mean" else f"{capture}_{transform_name}_{pooling}"
-    return os.path.join("/home/solee/pez/artifacts/features", suffix)
+    return os.path.join(FEATURES_ROOT, suffix)
 
 
 def main():

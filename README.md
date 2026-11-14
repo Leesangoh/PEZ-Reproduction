@@ -75,13 +75,13 @@ python3 -m pip install numpy pandas scikit-learn matplotlib opencv-python torch 
 This reproduction assumes:
 - A Python 3.10+ environment with CUDA-capable PyTorch
 - Blender is available for Kubric rendering
-- V-JEPA 2 source is available locally (clone from [facebookresearch/vjepa2](https://github.com/facebookresearch/vjepa2) and add to `PYTHONPATH`)
+- V-JEPA 2 source is available locally (clone from [facebookresearch/vjepa2](https://github.com/facebookresearch/vjepa2) and set `VJEPA2_ROOT` to the clone, or add it to `PYTHONPATH`)
 
 > **Note on the `python` command below.** All examples use plain `python` — use whatever your environment provides (`python`, `python3`, a venv, a conda env, etc.). My local setup happens to use an Isaac Sim container (`python`), which is why the commit history has that path. It is not required to reproduce anything here.
 
 ### Checkpoints
 
-Place checkpoints under `<YOUR_CHECKPOINT_DIR>` and point `CHECKPOINT_DIR` in [`./constants.py`](./constants.py) to that directory.
+Place checkpoints under `<YOUR_CHECKPOINT_DIR>` and set `VJEPA2_CHECKPOINT_DIR=<YOUR_CHECKPOINT_DIR>` (or edit `CHECKPOINT_DIR` in [`./constants.py`](./constants.py)). Generated data, features and results go under `./artifacts` in this checkout.
 
 Recommended files:
 

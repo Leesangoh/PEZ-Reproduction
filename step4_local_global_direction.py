@@ -25,7 +25,7 @@ import torch
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
-from constants import DATA_ROOT, N_FRAMES, RESOLUTION
+from constants import DATA_ROOT, N_FRAMES, RESOLUTION, RESULTS_ROOT
 from step2_extract import (
     DEPTH,
     EMBED_DIM,
@@ -295,7 +295,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--device", default="cuda:0" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--batch-size", type=int, default=4)
-    parser.add_argument("--output-root", default="/home/solee/pez/artifacts/results")
+    parser.add_argument("--output-root", default=RESULTS_ROOT)
     args = parser.parse_args()
 
     meta, local_features, heatmap_features = extract_patch_features(

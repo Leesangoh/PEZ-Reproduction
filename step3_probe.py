@@ -47,7 +47,7 @@ sys_path_added = False
 if not sys_path_added:
     import sys
 
-    sys.path.insert(0, "/home/solee/pez")
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     sys_path_added = True
 
 from constants import DATA_ROOT, RESULTS_ROOT

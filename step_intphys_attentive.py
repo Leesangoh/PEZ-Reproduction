@@ -28,14 +28,16 @@ from step2_extract import build_transform, load_model, pool_tokens, resolve_mode
 
 import sys
 
-sys.path.insert(0, "/home/solee/vjepa2")
-sys.path.insert(0, "/home/solee/vjepa2/src")
+import constants
+
+sys.path.insert(0, constants.VJEPA2_ROOT)
+sys.path.insert(0, constants.VJEPA2_SRC)
 from src.models.attentive_pooler import AttentiveClassifier
 
 
-INTPHYS_ROOT = Path("/home/solee/pez/artifacts/intphys/dev")
-FEATURE_ROOT_BASE = Path("/home/solee/pez/artifacts/features")
-RESULTS_ROOT = Path("/home/solee/pez/artifacts/results")
+INTPHYS_ROOT = Path(constants.INTPHYS_ROOT) / "dev"
+FEATURE_ROOT_BASE = Path(constants.FEATURES_ROOT)
+RESULTS_ROOT = Path(constants.RESULTS_ROOT)
 
 CV_SPLITS = 5
 RANDOM_SEED = 42
