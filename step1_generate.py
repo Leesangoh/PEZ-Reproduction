@@ -10,11 +10,11 @@ being rendered framewise.
 
 Usage:
   Blender / Kubric:
-    PYTHONPATH=/home/solee/kubric blender --background \
-      --python /home/solee/pez/step1_generate.py -- --backend kubric
+    PYTHONPATH=./kubric blender --background \
+      --python ./step1_generate.py -- --backend kubric
 
   Fallback / plain Python:
-    /isaac-sim/python.sh /home/solee/pez/step1_generate.py --backend pyrender
+    python ./step1_generate.py --backend pyrender
 """
 
 import argparse
@@ -29,7 +29,7 @@ import imageio.v2 as imageio
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, "/home/solee/pez")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from constants import (
     ACCELERATIONS,
     DATA_ROOT,
